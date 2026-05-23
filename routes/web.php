@@ -13,7 +13,7 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
-        return Inertia::render('Dashboard');
+        return Inertia::render('Dashboard/Index');
     })->name('dashboard');
 
     // Ruta unificada para el módulo de Directorio (Promotores y Agentes)
@@ -28,15 +28,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Módulo de Esquemas
     Route::prefix('esquemas')->name('esquemas.')->group(function () {
         
-        // Ruta principal del Index que apunta a la carpeta Scheme
-        Route::get('/', function () {
-            return Inertia::render('Scheme/Index');
-        })->name('index');
+        // Comisiones (Index por defecto)
+        Route::get('/', [SchemeController::class, 'index'])->name('index');
+        Route::get('/comisiones/crear', [SchemeController::class, 'createCommission'])->name('comisiones.crear');
+        Route::get('/comisiones/{scheme}', [SchemeController::class, 'show'])->name('comisiones.show');
 
-        // Rutas conectadas a tu SchemeController
-        Route::get('/partials/comissions', [SchemeController::class, 'commissions'])->name('comisiones');
-
-        Route::get('/partials/bonnuses', [SchemeController::class, 'bonuses'])->name('bonos');
+        // Bonos
+        Route::get('/bonos', [SchemeController::class, 'bonuses'])->name('bonos');
+        Route::get('/bonos/crear', [SchemeController::class, 'createBonus'])->name('bonos.crear');
         
     });
 

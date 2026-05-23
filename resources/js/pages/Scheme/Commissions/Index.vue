@@ -25,9 +25,9 @@ defineProps<{
                     <div class="p-6 text-gray-900">
                         <div class="flex flex-col sm:flex-row justify-between items-center mb-6">
                             <h2 class="text-2xl font-semibold mb-4 sm:mb-0">Esquemas de Comisiones</h2>
-                            <button class="px-4 py-2 bg-black text-white text-sm font-medium rounded-md hover:bg-gray-800 transition-colors">
+                            <Link href="/esquemas/partials/comissions/crear" class="px-4 py-2 bg-black text-white text-sm font-medium rounded-md hover:bg-gray-800 transition-colors">
                                 Nueva Comisión
-                            </button>
+                            </Link>
                         </div>
 
                         <div class="overflow-x-auto">
@@ -55,6 +55,7 @@ defineProps<{
                                             <span v-else class="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">Inactivo</span>
                                         </td>
                                         <td class="py-3 px-4 text-sm text-right">
+                                            <Link :href="`/schemes/${scheme.id}`" class="text-blue-600 hover:underline mr-3">Ver</Link>
                                             <button class="text-blue-600 hover:underline mr-3">Editar</button>
                                             <button class="text-red-600 hover:underline">Eliminar</button>
                                         </td>
