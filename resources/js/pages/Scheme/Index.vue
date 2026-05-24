@@ -1,7 +1,7 @@
-<script setup lang="ts">
+    <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
-import { Percent, Award, Plus, ArrowRight } from 'lucide-vue-next';
+import { Percent, Award, Plus, ArrowRight, Edit, Trash2 } from 'lucide-vue-next';
 
 // Recibimos los esquemas (que desde el controlador serán solo las comisiones)
 defineProps<{
@@ -71,10 +71,10 @@ defineProps<{
                     <div 
                         v-for="scheme in schemes" 
                         :key="scheme.id"
-                        class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden flex flex-col"
+                        class="bg-white/80 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 overflow-hidden flex flex-col"
                     >
                         <!-- Card Header -->
-                        <div class="p-5 border-b border-gray-100 flex justify-between items-start">
+                        <div class="p-6 border-b border-gray-50 flex justify-between items-start">
                             <div>
                                 <h3 class="text-lg font-semibold text-gray-900 leading-tight">
                                     {{ scheme.name }}
@@ -82,15 +82,15 @@ defineProps<{
                                 <p class="text-xs text-gray-500 font-mono mt-1">{{ scheme.code }}</p>
                             </div>
                             <span 
-                                :class="scheme.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
-                                class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                :class="scheme.is_active ? 'bg-green-50 text-green-700 ring-1 ring-green-600/20' : 'bg-red-50 text-red-700 ring-1 ring-red-600/20'"
+                                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold tracking-wide"
                             >
                                 {{ scheme.is_active ? 'Activo' : 'Inactivo' }}
                             </span>
                         </div>
 
                         <!-- Card Body -->
-                        <div class="p-5 flex-1">
+                        <div class="p-6 flex-1">
                             <div class="space-y-3">
                                 <div class="flex justify-between text-sm">
                                     <span class="text-gray-500">Dirigido a:</span>
@@ -106,11 +106,15 @@ defineProps<{
                         </div>
 
                         <!-- Card Footer / Actions -->
-                        <div class="px-5 py-4 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
-                            <div class="flex space-x-3">
-                                <button class="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors">Editar</button>
-                                <button class="text-sm font-medium text-red-600 hover:text-red-800 transition-colors">Eliminar</button>
-                            </div>
+                        <div class="px-6 py-4 bg-gray-50/50 border-t border-gray-50 flex justify-between items-center">
+                             <div class="flex space-x-2">
+                                 <Link :href="`/esquemas/comisiones/${scheme.id}/editar`" class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200" title="Editar">
+                                     <Edit class="w-4 h-4" />
+                                 </Link>
+                                 <button class="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200" title="Eliminar">
+                                     <Trash2 class="w-4 h-4" />
+                                 </button>
+                             </div>
                             <!-- Apunta a la nueva estructura sugerida -->
                             <Link :href="`/esquemas/comisiones/${scheme.id}`" class="inline-flex items-center text-sm font-medium text-black hover:text-gray-600 transition-colors">
                                 Ver Detalles

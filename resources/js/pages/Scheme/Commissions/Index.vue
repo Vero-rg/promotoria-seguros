@@ -55,8 +55,8 @@ defineProps<{
                                             <span v-else class="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">Inactivo</span>
                                         </td>
                                         <td class="py-3 px-4 text-sm text-right">
-                                            <Link :href="`/schemes/${scheme.id}`" class="text-blue-600 hover:underline mr-3">Ver</Link>
-                                            <button class="text-blue-600 hover:underline mr-3">Editar</button>
+                                            <Link :href="`/esquemas/comisiones/${scheme.id}`" class="text-blue-600 hover:underline mr-3">Ver</Link>
++                                            <Link :href="`/esquemas/comisiones/${scheme.id}/editar`" class="text-blue-600 hover:underline mr-3">Editar</Link>
                                             <button class="text-red-600 hover:underline">Eliminar</button>
                                         </td>
                                     </tr>

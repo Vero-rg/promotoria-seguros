@@ -27,6 +27,14 @@ class SchemeController extends Controller
          return Inertia::render('Scheme/Commissions/Create');
     }
 
+    public function editCommission(Scheme $scheme)
+     {
+         $scheme->load(['versions.tiers']);
+         return Inertia::render('Scheme/Commissions/Edit', [
+             'scheme' => $scheme
+         ]);
+     }
+
     // Método para la vista de Bonos
     public function bonuses()
     {
@@ -46,6 +54,14 @@ class SchemeController extends Controller
         return Inertia::render('Scheme/Bonuses/Create');
     }
 
+    public function editBonus(Scheme $scheme)
+     {
+         $scheme->load(['versions.tiers']);
+         return Inertia::render('Scheme/Bonuses/Edit', [
+             'scheme' => $scheme
+         ]);
+     }
+
     // --- Los métodos para guardar/actualizar/eliminar por API se mantienen igual ---
 
     public function store(Request $request)
@@ -60,9 +76,10 @@ class SchemeController extends Controller
             'starts_at' => 'required|date',
             'ends_at' => 'nullable|date|after_or_equal:starts_at',
             'tiers' => 'required|array',
-            'tiers.*.product_type' => 'required|string',
-            'tiers.*.agent_percentage' => 'required|numeric',
-            'tiers.*.promoter_percentage' => 'required|numeric',
+            'tiers.*.conditions' => 'nullable|array',
+            'tiers.*.product_type' => 'nullable|string',
+            'tiers.*.agent_percentage' => 'nullable|numeric',
+            'tiers.*.promoter_percentage' => 'nullable|numeric',
         ]);
 
         $scheme = Scheme::create([
@@ -80,15 +97,22 @@ class SchemeController extends Controller
         ]);
 
         foreach ($validated['tiers'] as $tier) {
+            $conditions = $tier['conditions'] ?? [];
+            if (isset($tier['product_type'])) {
+                $conditions['product_type'] = $tier['product_type'];
+            }
             $version->tiers()->create([
-                'conditions' => ['product_type' => $tier['product_type']],
-                'agent_percentage' => $tier['agent_percentage'],
-                'promoter_percentage' => $tier['promoter_percentage'],
-            ]);
+                'conditions' => $conditions,
+                'agent_percentage' => $tier['agent_percentage'] ?? 0,
+                'promoter_percentage' => $tier['promoter_percentage'] ?? 0,
+            ]);    
         }
 
-        return redirect()->route('esquemas.index');    
+        return $scheme->type === 'bonus'
+            ? redirect()->route('esquemas.bonos') 
+            : redirect()->route('esquemas.index');
     }
+
 
     public function show(Scheme $scheme)
     {
@@ -98,15 +122,49 @@ class SchemeController extends Controller
         ]);
     }
 
+    public function showBonus(Scheme $scheme)
+    {
+        $scheme->load(['versions.tiers']);
+        return Inertia::render('Scheme/Bonuses/Show', [
+            'scheme' => $scheme
+        ]);
+    }
+
     public function update(Request $request, Scheme $scheme)
     {
         $validated = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
+            'name' => 'required|string|max:255',
             'is_active' => 'boolean',
+            'version_name' => 'required|string',
+             'starts_at' => 'required|date',
+             'ends_at' => 'nullable|date|after_or_equal:starts_at',
+             'tiers' => 'required|array',
+             'tiers.*.conditions' => 'nullable|array',
+             'tiers.*.product_type' => 'nullable|string',
+             'tiers.*.agent_percentage' => 'nullable|numeric',
+             'tiers.*.promoter_percentage' => 'nullable|numeric',
         ]);
 
-        $scheme->update($validated);
-        return response()->json($scheme);
+        $scheme->update([
+             'name' => $validated['name'],
+            'is_active' => $validated['is_active'] ?? true,
+         ]);
+ 
+         // Para conservar historial, se asume la creación de una nueva versión o actualización de la actual
+         // Aquí se actualiza la versión más reciente a modo de ejemplo
+         $version = $scheme->versions()->latest()->first();
+         if ($version) {
+             $version->update([
+                 'version_name' => $validated['version_name'],
+                 'starts_at' => $validated['starts_at'],
+                 'ends_at' => $validated['ends_at'] ?? null,
+             ]);
+             
+            // Lógica de actualización de Tiers iría aquí (Sincronización)
+             // ...
+         }
+ 
+        return redirect()->back();
     }
 
     public function destroy(Scheme $scheme)

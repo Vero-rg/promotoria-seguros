@@ -31,12 +31,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // Comisiones (Index por defecto)
         Route::get('/', [SchemeController::class, 'index'])->name('index');
         Route::get('/comisiones/crear', [SchemeController::class, 'createCommission'])->name('comisiones.crear');
+        Route::get('/comisiones/{scheme}/editar', [SchemeController::class, 'editCommission'])->name('comisiones.editar');
         Route::get('/comisiones/{scheme}', [SchemeController::class, 'show'])->name('comisiones.show');
 
         // Bonos
         Route::get('/bonos', [SchemeController::class, 'bonuses'])->name('bonos');
         Route::get('/bonos/crear', [SchemeController::class, 'createBonus'])->name('bonos.crear');
-        
+        Route::get('/bonos/{scheme}/editar', [SchemeController::class, 'editBonus'])->name('bonos.editar');
+        Route::get('/bonos/{scheme}', [SchemeController::class, 'showBonus'])->name('bonos.show');
+
     });
 
 });

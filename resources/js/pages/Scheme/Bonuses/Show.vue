@@ -33,8 +33,8 @@ defineProps<{
         <div class="py-12">
             <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
                 <div class="flex justify-between items-center">
-                    <h2 class="text-2xl font-semibold">Detalles del Esquema</h2>
-                    <Link href="/esquemas" class="text-gray-500 hover:text-gray-700 text-sm">
+                    <h2 class="text-2xl font-semibold">Detalles del Bono</h2>
+                    <Link href="/esquemas/bonos" class="text-gray-500 hover:text-gray-700 text-sm">
                         &larr; Volver
                     </Link>
                 </div>
@@ -73,22 +73,27 @@ defineProps<{
                     </div>
 
                     <el-table :data="version.tiers" border style="width: 100%">
-                        <el-table-column label="Producto" min-width="150">
+                        <el-table-column label="Condiciones Dinámicas (JSON)" min-width="300">
                             <template #default="scope">
-                                {{ scope.row.conditions.product_type || 'N/A' }}
+                                <template v-if="scope.row.conditions">
+                                     <div v-for="(value, key) in scope.row.conditions" :key="key" class="text-sm mb-1">
+                                        <span class="font-semibold text-gray-700 capitalize">
+                                             {{ key.replace(/_/g, ' ') }}:
+                                         </span> 
+                                         <span class="text-gray-600">
+                                             {{ value !== null && value !== undefined ? value : 'Sin límite' }}
+                                         </span>
+                                     </div>
+                                 </template>
                             </template>
                         </el-table-column>
-                        <el-table-column label="Comisión Agente (%)" min-width="150">
-                            <template #default="scope">
-                                {{ scope.row.agent_percentage }}%
-                            </template>
-                        </el-table-column>
-                        <el-table-column label="Comisión Promotor (%)" min-width="150">
-                            <template #default="scope">
-                                {{ scope.row.promoter_percentage }}%
-                            </template>
-                        </el-table-column>
-                    </el-table>
+                        <el-table-column label="Bono Agente (%)" min-width="150">
+                             <template #default="scope">{{ scope.row.agent_percentage }}%</template>
+                         </el-table-column>
+                         <el-table-column label="Bono Promotor (%)" min-width="150">
+                             <template #default="scope">{{ scope.row.promoter_percentage }}%</template>
+                         </el-table-column>
+                     </el-table>
                 </div>
                 
                 <div v-if="!scheme.versions || scheme.versions.length === 0" class="bg-white shadow-sm sm:rounded-lg border border-gray-100 p-6 text-center text-gray-500">
