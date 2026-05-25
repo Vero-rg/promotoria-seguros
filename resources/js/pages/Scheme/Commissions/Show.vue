@@ -10,6 +10,18 @@ defineProps<{
         type: string;
         target: string;
         is_active: boolean;
+        metric_base: string | null;
+        frequency: string | null;
+        requires_anticipos: boolean;
+        anticipos_config: Record<string, any> | null;
+        applies_annual_adjustment: boolean;
+        requires_product: string[] | null;
+        min_product_count: number;
+        requires_mix: boolean;
+        dependency_scheme_id: string | null;
+        min_irp: number;
+        min_collection_efficiency: number;
+        quarterly_recruits: Record<string, any> | null;
         versions: Array<{
             id: number;
             version_name: string;
@@ -38,6 +50,25 @@ defineProps<{
                         &larr; Volver
                     </Link>
                 </div>
+
+                <!-- Tarjeta de Reglas Globales -->
+                <div class="bg-white shadow-sm sm:rounded-lg border border-gray-100 p-6">
+                    <h3 class="text-lg font-medium text-gray-900 border-b pb-2 mb-4">Reglas y Condiciones Globales</h3>
+                    <el-descriptions border :column="2">
+                        <el-descriptions-item label="Métrica Base"><span class="uppercase">{{ scheme.metric_base || 'N/A' }}</span></el-descriptions-item>
+                        <el-descriptions-item label="Frecuencia"><span class="capitalize">{{ scheme.frequency || 'N/A' }}</span></el-descriptions-item>
+                        <el-descriptions-item label="Ajuste Anual">{{ scheme.applies_annual_adjustment ? 'Sí' : 'No' }}</el-descriptions-item>
+                        <el-descriptions-item label="Permite Anticipos">{{ scheme.requires_anticipos ? 'Sí' : 'No' }}</el-descriptions-item>
+                        <el-descriptions-item label="Esquema Dependiente">{{ scheme.dependency_scheme_id || 'Ninguno' }}</el-descriptions-item>
+                        <el-descriptions-item label="IRP Mínimo (%)">{{ scheme.min_irp || 0 }}%</el-descriptions-item>
+                        <el-descriptions-item label="Eficiencia de Cobro Mínima (%)">{{ scheme.min_collection_efficiency || 0 }}%</el-descriptions-item>
+                        <el-descriptions-item label="Mix de Ramos Requerido">{{ scheme.requires_mix ? 'Sí' : 'No' }}</el-descriptions-item>
+                        <el-descriptions-item label="Productos Requeridos">
+                            {{ scheme.requires_product && scheme.requires_product.length > 0 ? scheme.requires_product.join(', ') : 'Ninguno' }} 
+                            <span v-if="scheme.min_product_count > 0" class="text-gray-500 text-xs ml-1">(Mín. {{ scheme.min_product_count }})</span>
+                        </el-descriptions-item>
+                    </el-descriptions>
+                </div>    
 
                 <!-- Tarjeta de Info General -->
                 <div class="bg-white shadow-sm sm:rounded-lg border border-gray-100 p-6">

@@ -8,7 +8,7 @@ const props = defineProps({
         default: () => ({
             agent_id: '',
             policy_number: '',
-            issue_date: '',
+            issue_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
             premium_amount: 0,
             commission_percentage: 0,
             commission_amount: 0,
@@ -66,9 +66,7 @@ const submit = () => {
                     <label for="agent_id" class="block text-sm font-medium text-gray-700 mb-1">Agente Asignado</label>
                     <el-select id="agent_id" v-model="form.agent_id" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm" required>
                         <el-option value="" disabled>Selecciona un agente</el-option>
-                        <el-option v-for="agent in agents" :key="agent.id" :value="agent.id">
-                            {{ agent.name }}
-                        </el-option>
+                        <el-option v-for="agent in agents" :key="agent.id" :value="agent.id" :label="agent.name" />
                     </el-select>
                     <div v-if="form.errors.agent_id" class="text-red-500 text-xs mt-1">{{ form.errors.agent_id }}</div>
                 </div>
@@ -76,7 +74,7 @@ const submit = () => {
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label for="issue_date" class="block text-sm font-medium text-gray-700 mb-1">Fecha de Emisión</label>
-                        <el-date-picker id="issue_date" v-model="form.issue_date" type="date" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm" required/>
+                        <el-date-picker id="issue_date" v-model="form.issue_date" type="date" value-format="YYYY-MM-DD" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm" required/>
                         <div v-if="form.errors.issue_date" class="text-red-500 text-xs mt-1">{{ form.errors.issue_date }}</div>
                     </div>
                     <div>

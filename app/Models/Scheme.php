@@ -17,6 +17,30 @@ class Scheme extends Model
         'type',
         'target',
         'is_active',
+        // Reglas Globales
+        'metric_base',
+        'frequency',
+        'requires_anticipos',
+        'anticipos_config',
+        'applies_annual_adjustment',
+        'requires_product',
+        'min_product_count',
+        'requires_mix',
+        'dependency_scheme_id',
+        'min_irp',
+        'min_collection_efficiency',
+        'quarterly_recruits',
+    ];
+
+    // Casteo para manejar los JSON de configuración directamente como Arrays en PHP
+    protected $casts = [
+        'is_active' => 'boolean',
+        'requires_anticipos' => 'boolean',
+        'applies_annual_adjustment' => 'boolean',
+        'requires_mix' => 'boolean',
+        'anticipos_config' => 'array',
+        'requires_product' => 'array',
+        'quarterly_recruits' => 'array',
     ];
 
     // Relación: Un esquema (cuaderno) tiene muchas bandas/niveles a través de sus versiones

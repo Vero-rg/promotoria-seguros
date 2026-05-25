@@ -36,6 +36,23 @@ class PolicyController extends Controller
             'isr_retention' => 'nullable|numeric',
             'billing_retention' => 'nullable|numeric',
             'status' => 'nullable|string',
+        ], [
+            'required' => 'El campo :attribute es obligatorio.',
+            'string' => 'El campo :attribute debe ser texto.',
+            'numeric' => 'El campo :attribute debe ser un número.',
+            'date' => 'El campo :attribute debe ser una fecha válida.',
+            'exists' => 'El :attribute seleccionado es inválido.',
+            'unique' => 'El :attribute ya está registrado.',
+        ], [
+            'agent_id' => 'agente',
+            'policy_number' => 'número de póliza',
+            'issue_date' => 'fecha de emisión',
+            'premium_amount' => 'prima total',
+            'commission_percentage' => 'porcentaje de comisión',
+            'commission_amount' => 'monto de comisión',
+            'isr_retention' => 'retención de ISR',
+            'billing_retention' => 'costo de facturación',
+            'status' => 'estatus',
         ]);
 
         Policy::create($validated);
@@ -70,6 +87,23 @@ class PolicyController extends Controller
             'isr_retention' => 'nullable|numeric',
             'billing_retention' => 'nullable|numeric',
             'status' => 'sometimes|string',
+        ], [
+            'required' => 'El campo :attribute es obligatorio.',
+            'string' => 'El campo :attribute debe ser texto.',
+            'numeric' => 'El campo :attribute debe ser un número.',
+            'date' => 'El campo :attribute debe ser una fecha válida.',
+            'exists' => 'El :attribute seleccionado es inválido.',
+            'unique' => 'El :attribute ya está registrado.',
+        ], [
+            'agent_id' => 'agente',
+            'policy_number' => 'número de póliza',
+            'issue_date' => 'fecha de emisión',
+            'premium_amount' => 'prima total',
+            'commission_percentage' => 'porcentaje de comisión',
+            'commission_amount' => 'monto de comisión',
+            'isr_retention' => 'retención de ISR',
+            'billing_retention' => 'costo de facturación',
+            'status' => 'estatus',
         ]);
 
         $policy->update($validated);
