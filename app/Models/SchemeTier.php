@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\SchemeVersion;
 
-
 class SchemeTier extends Model
 {
     use HasFactory;
@@ -15,6 +14,7 @@ class SchemeTier extends Model
         'scheme_version_id',
         'conditions',
         'agent_percentage',
+        'agent_automatic_percentage', // Nuevo campo agregado
         'promoter_percentage',
         'fixed_amount',
     ];

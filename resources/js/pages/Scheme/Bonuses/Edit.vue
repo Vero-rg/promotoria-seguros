@@ -4,6 +4,7 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import { ref, computed, markRaw } from 'vue';
 import TierActivityRatio from '../Bonuses/Partials/TierActivityRatio.vue';
 import TierFirstYearProduction from '../Bonuses/Partials/TierFirstYearProduction.vue';
+import TierAgentFirstYearProduction from '../Bonuses/Partials/TierAgentFirstYearProduction.vue';
 import TierAdditionalAgents from '../Bonuses/Partials/TierAdditionalAgents.vue';
 import TierConnection from '../Bonuses/Partials/TierConnection.vue';
 import TierMonthlyDevelopment from '../Bonuses/Partials/TierMonthlyDevelopment.vue';
@@ -17,6 +18,11 @@ const templates = {
         target: 'agent',
         component: markRaw(TierActivityRatio),
         baseCondition: { classification: '', min_policies: 0, max_policies: undefined },
+    },
+    agent_first_year_production: {
+        target: 'agent',
+        component: markRaw(TierAgentFirstYearProduction),
+        baseCondition: { min_pca: 0 },
     },
     promoter_first_year_production: {
         target: 'promoter',
@@ -41,9 +47,9 @@ const templates = {
 };
 
 // Identificar plantilla por el código
-const activeTemplateKey = Object.keys(templates).includes(props.scheme.code) 
-    ? props.scheme.code 
-    : 'agent_activity_ratio';
+const activeTemplateKey = Object.keys(templates).includes(props.scheme.id) 
+    ? props.scheme.id 
+    : Object.keys(templates)[0];
 
 const currentTemplate = computed(() => templates[activeTemplateKey as keyof typeof templates]);
 
@@ -51,7 +57,7 @@ const currentVersion = props.scheme.versions[props.scheme.versions.length - 1] |
 
 const form = useForm({
     name: props.scheme.name,
-    code: props.scheme.code,
+    // code: props.scheme.code,
     type: props.scheme.type,
     target: props.scheme.target,
     is_active: props.scheme.is_active,
@@ -82,13 +88,14 @@ const form = useForm({
     ends_at: currentVersion.ends_at || '',
     tiers: currentVersion.tiers && currentVersion.tiers.length > 0
         ? JSON.parse(JSON.stringify(currentVersion.tiers))
-        : [{ conditions: { ...currentTemplate.value.baseCondition }, agent_percentage: 0, promoter_percentage: 0 }]
+        : [{ conditions: { ...currentTemplate.value.baseCondition }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 0 }]
 });
 
 const addTier = () => {
     form.tiers.push({ 
         conditions: { ...currentTemplate.value.baseCondition }, 
         agent_percentage: 0, 
+        agent_automatic_percentage: 0,
         promoter_percentage: 0 
     });
 };
@@ -129,15 +136,15 @@ const submit = () => {
                         <!-- Datos del Esquema -->
                         <div>
                             <h3 class="text-lg font-medium text-gray-900 border-b pb-2 mb-4">1. Datos Generales</h3>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Nombre del Bono</label>
                                     <el-input v-model="form.name" required />
                                 </div>
-                                <div>
+                                <!-- <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Código Interno</label>
                                     <el-input v-model="form.code" disabled />
-                                </div>
+                                </div> -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Dirigido a</label>
                                     <el-select v-model="form.target" style="width: 100%;" disabled>
@@ -300,7 +307,11 @@ const submit = () => {
                                         <label class="block text-xs text-gray-500 mb-1">Valor en Pólizas</label>
                                         <el-input-number v-model="eq.policies" :min="0" :step="0.5" style="width: 100%;" />
                                     </div>
-                                    <el-button type="danger" plain @click="removeEquivalence(index)" class="mt-5">X</el-button>
+                                    <el-button type="danger" plain @click="removeTier(index)" class="mt-2 md:mt-0">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                        </svg>
+                                    </el-button>
                                 </div>
                             </div>
                         </div>
@@ -320,16 +331,31 @@ const submit = () => {
                                 <div v-for="(tier, index) in form.tiers" :key="index" class="flex flex-wrap md:flex-nowrap items-end gap-4 p-4 border rounded-md bg-gray-50">
                                     <component :is="currentTemplate.component" :conditions="tier.conditions" />
                                     
-                                    <div class="flex-1 min-w-[140px]" v-if="form.target === 'agent' || form.target === 'both'">
-                                         <label class="block text-sm font-medium text-gray-700 mb-1">Bono Agente (%)</label>
-                                         <el-input-number v-model="tier.agent_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
-                                     </div>
+                                     <template v-if="activeTemplateKey === 'agent_first_year_production'">
+                                         <div class="flex-1 min-w-[140px]">
+                                             <label class="block text-sm font-medium text-gray-700 mb-1">Bono Pago Directo (%)</label>
+                                             <el-input-number v-model="tier.agent_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
+                                         </div>
+                                         <div class="flex-1 min-w-[140px]">
+                                             <label class="block text-sm font-medium text-gray-700 mb-1">Bono Automático (%)</label>
+                                             <el-input-number v-model="tier.agent_automatic_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
+                                         </div>
+                                     </template>
+                                     <template v-else>
+                                         <div class="flex-1 min-w-[140px]" v-if="form.target === 'agent' || form.target === 'both'">
+                                             <label class="block text-sm font-medium text-gray-700 mb-1">Bono Agente (%)</label>
+                                             <el-input-number v-model="tier.agent_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
+                                         </div>
+                                     </template>
+
                                     <div class="flex-1 min-w-[140px]" v-if="form.target === 'promoter' || form.target === 'both'">
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Bono Promotor (%)</label>
                                         <el-input-number v-model="tier.promoter_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
                                     </div>
                                     <el-button type="danger" plain @click="removeTier(index)" class="mt-2 md:mt-0">
-                                        X
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                        </svg>
                                     </el-button>
                                 </div>
                             </div>

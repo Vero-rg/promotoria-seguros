@@ -1,9 +1,11 @@
 <script setup>
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
-import { Plus, FileText, Calendar, DollarSign, Activity } from 'lucide-vue-next';
+import { ref, computed } from 'vue';
+import { Head, Link, router } from '@inertiajs/vue3';
+import { Plus, FileText, Search, Edit, Trash2 } from 'lucide-vue-next';
+import { ElMessage, ElMessageBox } from 'element-plus';
 
-defineProps({
+const props = defineProps({
     policies: Array,
 });
 
@@ -19,6 +21,51 @@ const statusColors = {
     activa: 'bg-green-100 text-green-800',
     cancelada: 'bg-red-100 text-red-800',
     pagada: 'bg-blue-100 text-blue-800',
+};
+
+const search = ref('');
+const agentFilter = ref('');
+const statusFilter = ref('');
+
+const uniqueAgents = computed(() => {
+    const agents = [];
+    const map = new Map();
+    for (const item of props.policies) {
+        if (item.agent && !map.has(item.agent.id)) {
+            map.set(item.agent.id, true);
+            agents.push(item.agent);
+        }
+    }
+    return agents;
+});
+
+const filteredPolicies = computed(() => {
+    return props.policies.filter(p => {
+        const matchesSearch = p.policy_number.toString().includes(search.value) || (p.agent?.name || '').toLowerCase().includes(search.value.toLowerCase());
+        const matchesAgent = agentFilter.value === '' ? true : p.agent?.id === agentFilter.value;
+        const matchesStatus = statusFilter.value === '' ? true : p.status === statusFilter.value;
+        return matchesSearch && matchesAgent && matchesStatus;
+    });
+});
+
+const handleRowClick = (row) => {
+    router.get(route('policies.show', row.id));
+};
+
+const handleEdit = (row) => {
+    router.get(route('policies.edit', row.id));
+};
+
+const handleDelete = (row) => {
+    ElMessageBox.confirm(
+        '¿Estás seguro de eliminar esta póliza?',
+        'Confirmar eliminación',
+        { confirmButtonText: 'Sí, eliminar', cancelButtonText: 'Cancelar', type: 'warning' }
+    ).then(() => {
+        router.delete(route('policies.destroy', row.id), {
+            onSuccess: () => ElMessage({ type: 'success', message: 'Eliminada correctamente' })
+        });
+    }).catch(() => {});
 };
 </script>
 
@@ -39,51 +86,64 @@ const statusColors = {
             </div>
 
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50/50">
-                            <tr>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No. Póliza</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agente</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Emisión</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prima</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estatus</th>
-                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            <tr v-for="policy in policies" :key="policy.id" class="hover:bg-gray-50 transition-colors">
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                    {{ policy.policy_number }}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {{ policy.agent?.name || 'N/A' }}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {{ formatDate(policy.issue_date) }}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
-                                    {{ formatCurrency(policy.premium_amount) }}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize" :class="statusColors[policy.status?.toLowerCase()] || 'bg-gray-100 text-gray-800'">
-                                        {{ policy.status }}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    <Link :href="route('policies.show', policy.id)" class="text-blue-600 hover:text-blue-900 mr-3">Ver</Link>
-                                    <Link :href="route('policies.edit', policy.id)" class="text-indigo-600 hover:text-indigo-900">Editar</Link>
-                                </td>
-                            </tr>
-                            <tr v-if="!policies.length">
-                                <td colspan="6" class="px-6 py-8 text-center text-sm text-gray-500">
-                                    No hay pólizas registradas.
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+               <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row gap-4 items-center justify-between">
+                   <div class="flex flex-1 gap-4 items-center w-full">
+                       <el-input v-model="search" placeholder="Buscar por número o agente" clearable class="w-full sm:max-w-xs">
+                           <template #prefix><Search class="w-4 h-4 text-gray-400" /></template>
+                       </el-input>
+
+                       <el-select v-model="agentFilter" placeholder="Todos los agentes" clearable class="w-full sm:max-w-[200px]">
+                           <el-option label="Todos" value="" />
+                           <el-option v-for="agent in uniqueAgents" :key="agent.id" :label="agent.name" :value="agent.id" />
+                       </el-select>
+
+                       <el-select v-model="statusFilter" placeholder="Todos los estatus" clearable class="w-full sm:max-w-[150px]">
+                           <el-option label="Todos" value="" />
+                           <el-option label="Activa" value="Activa" />
+                           <el-option label="Cancelada" value="Cancelada" />
+                           <el-option label="Pagada" value="Pagada" />
+                       </el-select>
+                   </div>
+               </div>
+
+               <el-table :data="filteredPolicies" style="width: 100%" empty-text="No hay pólizas registradas." @row-click="handleRowClick" row-class-name="cursor-pointer">
+                   <el-table-column prop="policy_number" label="No. Póliza" min-width="120" sortable />
+                   <el-table-column prop="agent.name" label="Agente" min-width="180" sortable>
+                       <template #default="{ row }">
+                           {{ row.agent?.name || 'N/A' }}
+                       </template>
+                   </el-table-column>
+                   <el-table-column prop="issue_date" label="Emisión" width="120" sortable>
+                       <template #default="{ row }">
+                           {{ formatDate(row.issue_date) }}
+                       </template>
+                   </el-table-column>
+                   <el-table-column prop="premium_amount" label="Prima" width="120" sortable>
+                       <template #default="{ row }">
+                           {{ formatCurrency(row.premium_amount) }}
+                       </template>
+                   </el-table-column>
+                   <el-table-column prop="status" label="Estatus" width="120" sortable>
+                       <template #default="{ row }">
+                           <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize" :class="statusColors[row.status?.toLowerCase()] || 'bg-gray-100 text-gray-800'">
+                               {{ row.status }}
+                           </span>
+                       </template>
+                   </el-table-column>
+                   <el-table-column label="Acciones" width="120" align="right" fixed="right">
+                       <template #default="{ row }">
+                           <div class="flex items-center justify-end gap-2">
+                               <button @click.stop="handleEdit(row)" class="p-2 text-gray-500 hover:text-blue-600 transition-colors cursor-pointer" title="Editar">
+                                   <Edit class="w-4 h-4" />
+                               </button>
+                               <button @click.stop="handleDelete(row)" class="p-2 text-gray-500 hover:text-red-600 transition-colors cursor-pointer" title="Eliminar">
+                                   <Trash2 class="w-4 h-4" />
+                               </button>
+                           </div>
+                       </template>
+                   </el-table-column>
+               </el-table>
+           </div>
         </div>
     </AppLayout>    
 </template>

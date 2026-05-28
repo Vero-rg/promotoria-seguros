@@ -6,7 +6,7 @@ defineProps<{
     scheme: {
         id: number;
         name: string;
-        code: string;
+        // code: string;
         type: string;
         target: string;
         is_active: boolean;
@@ -61,7 +61,7 @@ defineProps<{
                     <h3 class="text-lg font-medium text-gray-900 border-b pb-2 mb-4">Información General</h3>
                     <el-descriptions border :column="2">
                         <el-descriptions-item label="Nombre">{{ scheme.name }}</el-descriptions-item>
-                        <el-descriptions-item label="Código">{{ scheme.code }}</el-descriptions-item>
+                        <!-- <el-descriptions-item label="Código">{{ scheme.code }}</el-descriptions-item> -->
                         <el-descriptions-item label="Tipo">
                             <el-tag :type="scheme.type === 'commission' ? 'success' : 'warning'">
                                 {{ scheme.type === 'commission' ? 'Comisión' : 'Bono' }}

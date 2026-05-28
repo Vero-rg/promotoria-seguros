@@ -4,6 +4,7 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import { ref, watch, computed, markRaw } from 'vue';
 import TierActivityRatio from '../Bonuses/Partials/TierActivityRatio.vue';
 import TierFirstYearProduction from '../Bonuses/Partials/TierFirstYearProduction.vue';
+import TierAgentFirstYearProduction from '../Bonuses/Partials/TierAgentFirstYearProduction.vue';
 import TierAdditionalAgents from '../Bonuses/Partials/TierAdditionalAgents.vue';
 import TierConnection from '../Bonuses/Partials/TierConnection.vue';
 import TierMonthlyDevelopment from '../Bonuses/Partials/TierMonthlyDevelopment.vue';
@@ -13,7 +14,7 @@ const selectedTemplate = ref('activity_ratio');
 const templates = {
     activity_ratio: {
         name: 'Compensación Vida Individual',
-        code: 'agent_activity_ratio',
+        // code: 'agent_activity_ratio',
         target: 'agent',
         metric_base: 'PCA',
         frequency: 'trimestral',
@@ -23,7 +24,7 @@ const templates = {
         requires_product: ['Vida'],
         min_product_count: 0,
         requires_mix: false,
-        dependency_scheme_id: 'produccion_1er_ano_vida', // Mock referencial
+        dependency_scheme_id: 'produccion_1er_ano_vida',
         min_irp: 0,
         min_collection_efficiency: 0,
         quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
@@ -35,11 +36,42 @@ const templates = {
             { min_pna: 60000, max_pna: 119999, policies: 1.5 },
             { min_pna: 120000, max_pna: undefined, policies: 2.0 }
         ],
-        tiers: [{ conditions: { classification: 'Activo 12', min_policies: 1.0, max_policies: 1.49 }, agent_percentage: 2, promoter_percentage: 0 }]
+        tiers: [{ conditions: { classification: 'Activo 12', min_policies: 1.0, max_policies: 1.49 }, agent_percentage: 2, agent_automatic_percentage: 0, promoter_percentage: 0 }]
+    },
+    agent_first_year_production: {
+        name: 'Producción 1er Año Vida Trimestral (3 meses)',
+        // code: 'agent_first_year_production',
+        target: 'agent',
+        metric_base: 'PCA',
+        frequency: 'trimestral',
+        requires_anticipos: true,
+        anticipos_config: { month_1_min: 0, month_2_min: 0 },
+        applies_annual_adjustment: false,
+        requires_product: ['Vida', 'Primordial'],
+        min_product_count: 2,
+        requires_mix: true,
+        dependency_scheme_id: null,
+        min_irp: 0,
+        min_collection_efficiency: 0,
+        quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
+        component: markRaw(TierAgentFirstYearProduction),
+        baseCondition: { min_pca: 0 },
+        pna_equivalences: [],
+        tiers: [
+            { conditions: { min_pca: 785000 }, agent_percentage: 36, agent_automatic_percentage: 44, promoter_percentage: 0 },
+            { conditions: { min_pca: 650000 }, agent_percentage: 32, agent_automatic_percentage: 40, promoter_percentage: 0 },
+            { conditions: { min_pca: 525000 }, agent_percentage: 28, agent_automatic_percentage: 34, promoter_percentage: 0 },
+            { conditions: { min_pca: 460000 }, agent_percentage: 26, agent_automatic_percentage: 32, promoter_percentage: 0 },
+            { conditions: { min_pca: 395000 }, agent_percentage: 24, agent_automatic_percentage: 30, promoter_percentage: 0 },
+            { conditions: { min_pca: 330000 }, agent_percentage: 21, agent_automatic_percentage: 27, promoter_percentage: 0 },
+            { conditions: { min_pca: 260000 }, agent_percentage: 19, agent_automatic_percentage: 25, promoter_percentage: 0 },
+            { conditions: { min_pca: 200000 }, agent_percentage: 14, agent_automatic_percentage: 20, promoter_percentage: 0 },
+            { conditions: { min_pca: 130000 }, agent_percentage: 10, agent_automatic_percentage: 16, promoter_percentage: 0 },
+        ]
     },
     first_year_production: {
         name: 'Producción de 1er Año Trimestral',
-        code: 'promoter_first_year_production',
+        // code: 'promoter_first_year_production',
         target: 'promoter',
         metric_base: 'PP',
         frequency: 'trimestral',
@@ -55,11 +87,12 @@ const templates = {
         quarterly_recruits: { q1: 2, q2: 3, q3: 4, q4: 6 },
         component: markRaw(TierFirstYearProduction),
         baseCondition: { min_pp: 0, min_irp: 0, max_irp: undefined },
-        tiers: [{ conditions: { min_pp: 555000, min_irp: 91, max_irp: 93.99 }, agent_percentage: 0, promoter_percentage: 18 }]
+        pna_equivalences: [],
+        tiers: [{ conditions: { min_pp: 555000, min_irp: 91, max_irp: 93.99 }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 18 }]
     },
     additional_agents: {
         name: 'Adicional por Agentes con Compensación',
-        code: 'promoter_additional_agents',
+        // code: 'promoter_additional_agents',
         target: 'promoter',
         metric_base: 'PP',
         frequency: 'trimestral',
@@ -75,11 +108,12 @@ const templates = {
         quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
         component: markRaw(TierAdditionalAgents),
         baseCondition: { min_agents: 0, max_agents: undefined },
-        tiers: [{ conditions: { min_agents: 1, max_agents: 1 }, agent_percentage: 0, promoter_percentage: 2 }]
+        pna_equivalences: [],
+        tiers: [{ conditions: { min_agents: 1, max_agents: 1 }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 2 }]
     },
     connection: {
         name: 'Conexión',
-        code: 'promoter_connection',
+        // code: 'promoter_connection',
         target: 'promoter',
         metric_base: 'PCA',
         frequency: 'mensual',
@@ -95,11 +129,12 @@ const templates = {
         quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
         component: markRaw(TierConnection),
         baseCondition: { min_recruits: 0, max_recruits: undefined, min_pca: 0 },
-        tiers: [{ conditions: { min_recruits: 1, max_recruits: 2, min_pca: 125000 }, agent_percentage: 0, promoter_percentage: 9 }]
+        pna_equivalences: [],
+        tiers: [{ conditions: { min_recruits: 1, max_recruits: 2, min_pca: 125000 }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 9 }]
     },
     monthly_development: {
         name: 'Desarrollo Mensual',
-        code: 'promoter_monthly_development',
+        // code: 'promoter_monthly_development',
         target: 'promoter',
         metric_base: 'PCA',
         frequency: 'mensual',
@@ -115,7 +150,8 @@ const templates = {
         quarterly_recruits: { q1: 1, q2: 2, q3: 3, q4: 4 },
         component: markRaw(TierMonthlyDevelopment),
         baseCondition: { min_pca: 0, min_month: 1, max_month: 12 },
-        tiers: [{ conditions: { min_pca: 125000, min_month: 1, max_month: 12 }, agent_percentage: 0, promoter_percentage: 9 }]
+        pna_equivalences: [],
+        tiers: [{ conditions: { min_pca: 125000, min_month: 1, max_month: 12 }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 9 }]
     }
 };
 
@@ -123,7 +159,7 @@ const currentTemplate = computed(() => templates[selectedTemplate.value as keyof
 
 const form = useForm({
     name: templates.activity_ratio.name,
-    code: templates.activity_ratio.code,
+    // code: templates.activity_ratio.code,
     type: 'bonus',
     target: templates.activity_ratio.target,
     is_active: true,
@@ -152,7 +188,7 @@ const form = useForm({
 watch(selectedTemplate, (newVal) => {
     const tpl = templates[newVal as keyof typeof templates];
     form.name = tpl.name;
-    form.code = tpl.code;
+    // form.code = tpl.code;
     form.target = tpl.target;
     
     form.metric_base = tpl.metric_base;
@@ -176,6 +212,7 @@ const addTier = () => {
     form.tiers.push({
         conditions: { ...currentTemplate.value.baseCondition },
         agent_percentage: 0,
+        agent_automatic_percentage: 0,
         promoter_percentage: 0
     });
 };
@@ -221,7 +258,8 @@ const submit = () => {
                                 <label class="block text-sm font-bold text-gray-900 mb-2">Plantilla de Bono</label>
                                 <el-select v-model="selectedTemplate" style="width: 100%;">
                                     <el-option label="Compensación Vida Individual (Agentes)" value="activity_ratio" />
-                                    <el-option label="Producción de 1er Año Trimestral" value="first_year_production" />
+                                    <el-option label="Producción 1er Año Vida Trimestral (Agentes)" value="agent_first_year_production" />
+                                    <el-option label="Producción de 1er Año Trimestral (Promotor)" value="first_year_production" />
                                     <el-option label="Adicional por Agentes con Compensación" value="additional_agents" />
                                     <el-option label="Conexión (Reclutamiento PCA)" value="connection" />
                                     <el-option label="Desarrollo Mensual" value="monthly_development" />
@@ -229,15 +267,15 @@ const submit = () => {
                                 <p class="text-xs text-gray-500 mt-2">Las reglas y condiciones globales se adaptarán automáticamente a la plantilla.</p>
                             </div>
 
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Nombre del Bono</label>
                                     <el-input v-model="form.name" required />
                                 </div>
-                                <div>
+                                <!-- <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Código Interno</label>
                                     <el-input v-model="form.code" required />
-                                </div>
+                                </div> -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Dirigido a</label>
                                     <el-select v-model="form.target" style="width: 100%;" disabled>
@@ -395,7 +433,11 @@ const submit = () => {
                                         <label class="block text-xs text-gray-500 mb-1">Valor en Pólizas</label>
                                         <el-input-number v-model="eq.policies" :min="0" :step="0.5" style="width: 100%;" />
                                     </div>
-                                    <el-button type="danger" plain @click="removeEquivalence(index)" class="mt-5">X</el-button>
+                                    <el-button type="danger" plain @click="removeTier(index)" class="mt-2 md:mt-0">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                        </svg>
+                                    </el-button>
                                 </div>
                             </div>
                         </div>
@@ -413,15 +455,32 @@ const submit = () => {
                                 <div v-for="(tier, index) in form.tiers" :key="index" class="flex flex-wrap md:flex-nowrap items-end gap-4 p-4 border rounded-md bg-gray-50">
                                      <component :is="currentTemplate.component" :conditions="tier.conditions" />
 
-                                    <div class="flex-1 min-w-[140px]" v-if="form.target === 'agent' || form.target === 'both'">
-                                         <label class="block text-sm font-medium text-gray-700 mb-1">Bono Agente (%)</label>
-                                         <el-input-number v-model="tier.agent_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
-                                     </div>
+                                     <template v-if="selectedTemplate === 'agent_first_year_production'">
+                                         <div class="flex-1 min-w-[140px]">
+                                             <label class="block text-sm font-medium text-gray-700 mb-1">Bono Pago Directo (%)</label>
+                                             <el-input-number v-model="tier.agent_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
+                                         </div>
+                                         <div class="flex-1 min-w-[140px]">
+                                             <label class="block text-sm font-medium text-gray-700 mb-1">Bono Automático (%)</label>
+                                             <el-input-number v-model="tier.agent_automatic_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
+                                         </div>
+                                     </template>
+                                     <template v-else>
+                                         <div class="flex-1 min-w-[140px]" v-if="form.target === 'agent' || form.target === 'both'">
+                                             <label class="block text-sm font-medium text-gray-700 mb-1">Bono Agente (%)</label>
+                                             <el-input-number v-model="tier.agent_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
+                                         </div>
+                                     </template>
+
                                      <div class="flex-1 min-w-[140px]" v-if="form.target === 'promoter' || form.target === 'both'">
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Bono Promotor (%)</label>
                                         <el-input-number v-model="tier.promoter_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
                                     </div>
-                                    <el-button type="danger" plain @click="removeTier(index)" class="mt-2 md:mt-0">X</el-button>
+                                    <el-button type="danger" plain @click="removeTier(index)" class="mt-2 md:mt-0">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                        </svg>
+                                    </el-button>
                                 </div>
                             </div>
                         </div>

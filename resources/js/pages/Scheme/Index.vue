@@ -8,7 +8,7 @@ defineProps<{
     schemes: Array<{
         id: number;
         name: string;
-        code: string;
+        // code: string;
         type: string;
         target: string;
         is_active: boolean;
@@ -79,7 +79,7 @@ defineProps<{
                                 <h3 class="text-lg font-semibold text-gray-900 leading-tight">
                                     {{ scheme.name }}
                                 </h3>
-                                <p class="text-xs text-gray-500 font-mono mt-1">{{ scheme.code }}</p>
+                                <!-- <p class="text-xs text-gray-500 font-mono mt-1">{{ scheme.code }}</p> -->
                             </div>
                             <span 
                                 :class="scheme.is_active ? 'bg-green-50 text-green-700 ring-1 ring-green-600/20' : 'bg-red-50 text-red-700 ring-1 ring-red-600/20'"

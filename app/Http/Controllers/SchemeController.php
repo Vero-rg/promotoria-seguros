@@ -95,6 +95,7 @@ class SchemeController extends Controller
             'tiers.*.conditions' => 'nullable|array',
             'tiers.*.product_type' => 'nullable|string',
             'tiers.*.agent_percentage' => 'nullable|numeric',
+            'tiers.*.agent_automatic_percentage' => 'nullable|numeric', // Agregado
             'tiers.*.promoter_percentage' => 'nullable|numeric',
         ]);
 
@@ -135,6 +136,7 @@ class SchemeController extends Controller
             $version->tiers()->create([
                 'conditions' => $conditions,
                 'agent_percentage' => (float) ($tier['agent_percentage'] ?? 0),
+                'agent_automatic_percentage' => (float) ($tier['agent_automatic_percentage'] ?? 0), // Agregado
                 'promoter_percentage' => (float) ($tier['promoter_percentage'] ?? 0),
             ]);    
         }
@@ -184,7 +186,6 @@ class SchemeController extends Controller
             'pna_equivalences.*.max_pna' => 'nullable|numeric',
             'pna_equivalences.*.policies' => 'nullable|numeric',
 
-
             // Versiones
             'version_name' => 'required|string',
             'starts_at' => 'required|date',
@@ -193,6 +194,7 @@ class SchemeController extends Controller
             'tiers.*.conditions' => 'nullable|array',
             'tiers.*.product_type' => 'nullable|string',
             'tiers.*.agent_percentage' => 'nullable|numeric',
+            'tiers.*.agent_automatic_percentage' => 'nullable|numeric', // Agregado
             'tiers.*.promoter_percentage' => 'nullable|numeric',
         ]);
 
