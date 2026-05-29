@@ -1,20 +1,34 @@
     <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
-import { Percent, Award, Plus, ArrowRight, Edit, Trash2 } from 'lucide-vue-next';
+import { Head, Link, router } from '@inertiajs/vue3';
+import { Percent, Award, Plus, ArrowRight, Edit, Trash2, AlertCircle } from 'lucide-vue-next';
+import { ElMessage, ElMessageBox } from 'element-plus';
 
 // Recibimos los esquemas (que desde el controlador serán solo las comisiones)
 defineProps<{
     schemes: Array<{
         id: number;
         name: string;
-        // code: string;
         type: string;
         target: string;
         is_active: boolean;
         tiers: any[];
+        versions: Array<{ id: number; version_name: string; starts_at: string; ends_at: string | null }>;
     }>;
 }>();
+
+const handleDelete = (schemeId: number, schemeName: string) => {
+    ElMessageBox.confirm(
+        `¿Estás seguro de eliminar "${schemeName}"? Esta acción no se puede deshacer.`,
+        'Confirmar eliminación',
+        { confirmButtonText: 'Sí, eliminar', cancelButtonText: 'Cancelar', type: 'warning' }
+    ).then(() => {
+        router.delete(`/schemes/${schemeId}`, {
+            onSuccess: () => ElMessage({ type: 'success', message: 'Esquema eliminado correctamente.' }),
+            onError: () => ElMessage({ type: 'error', message: 'Error al eliminar el esquema.' }),
+        });
+    }).catch(() => {});
+};
 </script>
 
 <template>
@@ -66,6 +80,18 @@ defineProps<{
                     </nav>
                 </div>
 
+                <!-- Aviso: solo un esquema de comisiones activo -->
+                <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                    <AlertCircle class="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                        <p class="text-sm font-medium text-amber-800">Solo puede haber un esquema de comisiones activo a la vez.</p>
+                        <p class="text-xs text-amber-700 mt-1">
+                            Puedes crear varios esquemas, pero únicamente el que esté <strong>activo</strong> aparecerá como opción al registrar pólizas. 
+                            Al activar uno nuevo, los demás se desactivarán automáticamente.
+                        </p>
+                    </div>
+                </div>
+
                 <!-- Grid de Tarjetas de Comisiones -->
                 <div v-if="schemes.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <div 
@@ -102,6 +128,10 @@ defineProps<{
                                     <span class="text-gray-500">Niveles configurados:</span>
                                     <span class="font-medium text-gray-900">{{ scheme.tiers?.length || 0 }}</span>
                                 </div>
+                                <div class="flex justify-between text-sm" v-if="scheme.versions?.length">
+                                    <span class="text-gray-500">Versión:</span>
+                                    <span class="font-medium text-gray-900">{{ scheme.versions[scheme.versions.length - 1]?.version_name || '—' }}</span>
+                                </div>
                             </div>
                         </div>
 
@@ -111,7 +141,7 @@ defineProps<{
                                  <Link :href="`/esquemas/comisiones/${scheme.id}/editar`" class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200" title="Editar">
                                      <Edit class="w-4 h-4" />
                                  </Link>
-                                 <button class="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200" title="Eliminar">
+                                 <button @click="handleDelete(scheme.id, scheme.name)" class="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200" title="Eliminar">
                                      <Trash2 class="w-4 h-4" />
                                  </button>
                              </div>

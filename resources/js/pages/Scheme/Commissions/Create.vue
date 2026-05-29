@@ -4,10 +4,11 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 
 const form = useForm({
     name: '',
-    code: '',
     type: 'commission',
     target: 'both',
     is_active: true,
+    metric_base: 'PNA',
+    frequency: 'única',
     version_name: 'Tabulador Inicial',
     starts_at: new Date().toISOString().split('T')[0],
     ends_at: '', // Nueva propiedad opcional
@@ -55,8 +56,29 @@ const submit = () => {
                                     <el-input v-model="form.name" placeholder="Ej. Comisiones Venta Directa" required />
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Código Interno</label>
-                                    <el-input v-model="form.code" placeholder="Ej. sales_commission" required />
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Dirigido a</label>
+                                    <el-select v-model="form.target" style="width: 100%;">
+                                        <el-option label="Ambos (Agente y Promotor)" value="both" />
+                                        <el-option label="Solo Promotor" value="promoter" />
+                                        <el-option label="Solo Agente" value="agent" />
+                                    </el-select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Métrica Base</label>
+                                    <el-select v-model="form.metric_base" style="width: 100%;">
+                                        <el-option label="PNA (Prima Nueva Anualizada)" value="PNA" />
+                                        <el-option label="PCA (Prima Computable Ajustada)" value="PCA" />
+                                        <el-option label="PP (Prima Pagada)" value="PP" />
+                                    </el-select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Frecuencia</label>
+                                    <el-select v-model="form.frequency" style="width: 100%;">
+                                        <el-option label="Única (por póliza)" value="única" />
+                                        <el-option label="Mensual" value="mensual" />
+                                        <el-option label="Trimestral" value="trimestral" />
+                                        <el-option label="Anual" value="anual" />
+                                    </el-select>
                                 </div>
                                 <div class="flex items-center mt-6">
                                     <el-checkbox v-model="form.is_active" label="Activar inmediatamente" size="large" />

@@ -1,11 +1,22 @@
 <script setup>
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
-import { FileText, Calendar, DollarSign, User, Percent, Receipt } from 'lucide-vue-next';
+import { Head, Link, router } from '@inertiajs/vue3';
+import { FileText, Calendar, DollarSign, User, Percent, Receipt, Calculator } from 'lucide-vue-next';
+import { computed } from 'vue';
+import { ElMessage } from 'element-plus';
 
 const props = defineProps({
     policy: Object,
 });
+
+const STATUS_OPTIONS = ['Activa', 'Cancelada', 'Pagada'];
+
+const handleStatusChange = (newStatus) => {
+    router.patch(route('policies.status', props.policy.id), { status: newStatus }, {
+        preserveScroll: true,
+        onSuccess: () => ElMessage({ type: 'success', message: `Estatus cambiado a "${newStatus}"` }),
+    });
+};
 
 const breadcrumbs = [
     {
@@ -33,6 +44,32 @@ const statusColors = {
     cancelada: 'bg-red-100 text-red-800 border-red-200',
     pagada: 'bg-blue-100 text-blue-800 border-blue-200',
 };
+
+// Cálculo del resumen financiero
+const summary = computed(() => {
+    const premium = Number(props.policy.premium_amount) || 0;
+    const agentComm = Number(props.policy.commission_amount) || 0;
+    const promoterComm = Number(props.policy.promoter_commission_amount) || 0;
+    const isrPct = Number(props.policy.isr_retention) || 0;
+    const billingPct = Number(props.policy.billing_retention) || 0;
+
+    const isrAmount = premium * (isrPct / 100);
+    const billingAmount = premium * (billingPct / 100);
+    const totalDeductions = agentComm + promoterComm + isrAmount + billingAmount;
+    const netAmount = premium - totalDeductions;
+
+    return {
+        premium,
+        agentComm,
+        promoterComm,
+        isrPct,
+        billingPct,
+        isrAmount,
+        billingAmount,
+        totalDeductions,
+        netAmount,
+    };
+});
 </script>
 
 <template>
@@ -62,9 +99,22 @@ const statusColors = {
                         </div>
                     </div>
                     <div class="flex gap-3">
-                        <Link :href="route('policies.index')" class="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
-                            Volver
-                        </Link>
+                        <el-dropdown trigger="click" @command="handleStatusChange">
+                            <button class="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
+                                Cambiar Estatus
+                            </button>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item 
+                                        v-for="s in STATUS_OPTIONS.filter(s => s !== policy.status)" 
+                                        :key="s" 
+                                        :command="s"
+                                    >
+                                        Cambiar a {{ s }}
+                                    </el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
                         <Link :href="route('policies.edit', policy.id)" class="px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors">
                             Editar Póliza
                         </Link>
@@ -93,6 +143,16 @@ const statusColors = {
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Tipo de Producto -->
+                        <div v-if="policy.product_type">
+                            <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4 flex items-center">
+                                <Percent class="w-4 h-4 mr-2" /> Producto
+                            </h3>
+                            <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                                <p class="text-base font-medium text-gray-900">{{ policy.product_type }}</p>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Columna Derecha: Detalles Financieros -->
@@ -108,9 +168,14 @@ const statusColors = {
                                     <p class="text-2xl font-bold text-blue-900">{{ formatCurrency(policy.premium_amount) }}</p>
                                 </div>
                                 <div class="bg-green-50/50 rounded-xl p-4 border border-green-100">
-                                    <p class="text-xs text-green-600/80 font-medium mb-1 uppercase">Comisión Bruta</p>
+                                    <p class="text-xs text-green-600/80 font-medium mb-1 uppercase">Comisión Agente</p>
                                     <p class="text-2xl font-bold text-green-900">{{ formatCurrency(policy.commission_amount) }}</p>
                                     <p class="text-xs text-green-700 mt-1 font-medium">{{ policy.commission_percentage }}% de la prima</p>
+                                </div>
+                                <div class="bg-purple-50/50 rounded-xl p-4 border border-purple-100">
+                                    <p class="text-xs text-purple-600/80 font-medium mb-1 uppercase">Comisión Promotor</p>
+                                    <p class="text-2xl font-bold text-purple-900">{{ formatCurrency(policy.promoter_commission_amount) }}</p>
+                                    <p class="text-xs text-purple-700 mt-1 font-medium">{{ policy.promoter_commission_percentage }}% de la prima</p>
                                 </div>
                             </div>
 
@@ -130,6 +195,50 @@ const statusColors = {
                         </div>
                     </div>
 
+                </div>
+
+                <!-- Resumen Financiero -->
+                <div class="border-t border-gray-100 bg-gradient-to-r from-gray-50 to-white">
+                    <div class="p-6">
+                        <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4 flex items-center">
+                            <Calculator class="w-4 h-4 mr-2" /> Resumen Financiero
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Desglose -->
+                            <div class="space-y-3">
+                                <div class="flex justify-between items-center py-2">
+                                    <span class="text-sm text-gray-600">Prima Total</span>
+                                    <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.premium) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-sm text-gray-600">− Comisión Agente ({{ policy.commission_percentage }}%)</span>
+                                    <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.agentComm) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-sm text-gray-600">− Comisión Promotor ({{ policy.promoter_commission_percentage }}%)</span>
+                                    <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.promoterComm) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-sm text-gray-600">− Retención ISR ({{ summary.isrPct }}%)</span>
+                                    <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.isrAmount) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-200">
+                                    <span class="text-sm text-gray-600">− Costo Facturación ({{ summary.billingPct }}%)</span>
+                                    <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.billingAmount) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2">
+                                    <span class="text-sm font-bold text-gray-800">Total Deducciones</span>
+                                    <span class="text-sm font-bold text-orange-600">{{ formatCurrency(summary.totalDeductions) }}</span>
+                                </div>
+                            </div>
+                            <!-- Resultado Neto -->
+                            <div class="flex flex-col items-center justify-center bg-green-50/50 rounded-xl border border-green-100 p-6">
+                                <p class="text-xs text-green-600/80 font-medium mb-1 uppercase">Monto Neto</p>
+                                <p class="text-3xl font-bold text-green-700">{{ formatCurrency(summary.netAmount) }}</p>
+                                <p class="text-xs text-green-600/70 mt-2">Prima después de todas las deducciones</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

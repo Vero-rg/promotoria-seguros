@@ -4,14 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\Scheme;
 use Illuminate\Http\Request;
-use Inertia\Inertia; 
+use Inertia\Inertia;
 
 class SchemeController extends Controller
 {
     // Método para la vista de Comisiones
     public function index()
     {
-        $schemes = Scheme::with('tiers')
+        $schemes = Scheme::with(['tiers', 'versions'])
             ->where('type', 'commission')
             ->orderBy('id', 'desc')
             ->get();
@@ -37,7 +37,7 @@ class SchemeController extends Controller
     // Método para la vista de Bonos
     public function bonuses()
     {
-        $schemes = Scheme::with('tiers')
+        $schemes = Scheme::with(['tiers', 'versions'])
             ->where('type', 'bonus')
             ->orderBy('id', 'desc')
             ->get();
@@ -64,14 +64,13 @@ class SchemeController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'code' => 'required|string|unique:schemes,code',
             'type' => 'required|string',
-            'target' => 'required|string|in:promoter,agent',
+            'target' => 'required|string|in:promoter,agent,both',
             'is_active' => 'boolean',
             
             // Reglas Globales
             'metric_base' => 'required|string|in:PCA,PP,PNA',
-            'frequency' => 'required|string|in:mensual,trimestral,anual',
+            'frequency' => 'required|string|in:única,mensual,trimestral,anual',
             'requires_anticipos' => 'boolean',
             'anticipos_config' => 'nullable|array',
             'applies_annual_adjustment' => 'boolean',
@@ -95,16 +94,28 @@ class SchemeController extends Controller
             'tiers.*.conditions' => 'nullable|array',
             'tiers.*.product_type' => 'nullable|string',
             'tiers.*.agent_percentage' => 'nullable|numeric',
-            'tiers.*.agent_automatic_percentage' => 'nullable|numeric', // Agregado
             'tiers.*.promoter_percentage' => 'nullable|numeric',
         ]);
 
+        // Si es una comisión y se activa, desactivar todas las demás comisiones activas
+        $isActive = $validated['is_active'] ?? true;
+        if ($validated['type'] === 'commission' && $isActive) {
+            Scheme::where('type', 'commission')->where('is_active', true)->update(['is_active' => false]);
+        }
+
+        // Si es un bono y se activa, desactivar otros bonos activos con el mismo nombre
+        if ($validated['type'] === 'bonus' && $isActive) {
+            Scheme::where('type', 'bonus')
+                ->where('name', $validated['name'])
+                ->where('is_active', true)
+                ->update(['is_active' => false]);
+        }
+
         $scheme = Scheme::create([
             'name' => $validated['name'],
-            'code' => $validated['code'],
             'type' => $validated['type'],
             'target' => $validated['target'],
-            'is_active' => $validated['is_active'] ?? true,
+            'is_active' => $isActive,
             
             // Asignación de Reglas Globales (Asegurar casteos en el Modelo Scheme)
             'metric_base' => $validated['metric_base'],
@@ -115,7 +126,7 @@ class SchemeController extends Controller
             'requires_product' => $validated['requires_product'] ?? [],
             'min_product_count' => $validated['min_product_count'] ?? 0,
             'requires_mix' => $validated['requires_mix'] ?? false,
-            'dependency_scheme_id' => $validated['dependency_scheme_id'],
+            'dependency_scheme_id' => $validated['dependency_scheme_id'] ?? null,
             'min_irp' => $validated['min_irp'] ?? 0,
             'min_collection_efficiency' => $validated['min_collection_efficiency'] ?? 0,
             'quarterly_recruits' => $validated['quarterly_recruits'] ?? null,
@@ -136,7 +147,6 @@ class SchemeController extends Controller
             $version->tiers()->create([
                 'conditions' => $conditions,
                 'agent_percentage' => (float) ($tier['agent_percentage'] ?? 0),
-                'agent_automatic_percentage' => (float) ($tier['agent_automatic_percentage'] ?? 0), // Agregado
                 'promoter_percentage' => (float) ($tier['promoter_percentage'] ?? 0),
             ]);    
         }
@@ -167,10 +177,11 @@ class SchemeController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'is_active' => 'boolean',
+            'target' => 'required|string|in:promoter,agent,both',
 
             // Reglas Globales (Update)
             'metric_base' => 'required|string|in:PCA,PP,PNA',
-            'frequency' => 'required|string|in:mensual,trimestral,anual',
+            'frequency' => 'required|string|in:única,mensual,trimestral,anual',
             'requires_anticipos' => 'boolean',
             'anticipos_config' => 'nullable|array',
             'applies_annual_adjustment' => 'boolean',
@@ -194,13 +205,31 @@ class SchemeController extends Controller
             'tiers.*.conditions' => 'nullable|array',
             'tiers.*.product_type' => 'nullable|string',
             'tiers.*.agent_percentage' => 'nullable|numeric',
-            'tiers.*.agent_automatic_percentage' => 'nullable|numeric', // Agregado
             'tiers.*.promoter_percentage' => 'nullable|numeric',
         ]);
 
+        // Si es una comisión y se activa, desactivar las demás comisiones activas
+        $isActive = $validated['is_active'] ?? $scheme->is_active;
+        if ($scheme->type === 'commission' && $isActive) {
+            Scheme::where('type', 'commission')
+                ->where('is_active', true)
+                ->where('id', '!=', $scheme->id)
+                ->update(['is_active' => false]);
+        }
+
+        // Si es un bono y se activa, desactivar otros bonos activos con el mismo nombre
+        if ($scheme->type === 'bonus' && $isActive) {
+            Scheme::where('type', 'bonus')
+                ->where('name', $validated['name'])
+                ->where('is_active', true)
+                ->where('id', '!=', $scheme->id)
+                ->update(['is_active' => false]);
+        }
+
         $scheme->update([
             'name' => $validated['name'],
-            'is_active' => $validated['is_active'] ?? true,
+            'is_active' => $isActive,
+            'target' => $validated['target'],
             'metric_base' => $validated['metric_base'],
             'frequency' => $validated['frequency'],
             'requires_anticipos' => $validated['requires_anticipos'] ?? false,
@@ -209,7 +238,7 @@ class SchemeController extends Controller
             'requires_product' => $validated['requires_product'] ?? [],
             'min_product_count' => $validated['min_product_count'] ?? 0,
             'requires_mix' => $validated['requires_mix'] ?? false,
-            'dependency_scheme_id' => $validated['dependency_scheme_id'],
+            'dependency_scheme_id' => $validated['dependency_scheme_id'] ?? null,
             'min_irp' => $validated['min_irp'] ?? 0,
             'min_collection_efficiency' => $validated['min_collection_efficiency'] ?? 0,
             'quarterly_recruits' => $validated['quarterly_recruits'] ?? null,
@@ -223,6 +252,19 @@ class SchemeController extends Controller
                  'starts_at' => $validated['starts_at'],
                  'ends_at' => $validated['ends_at'] ?? null,
              ]);
+             // Sincronizar tiers: eliminar viejos y crear nuevos
+             $version->tiers()->delete();
+             foreach ($validated['tiers'] as $tier) {
+                 $conditions = $tier['conditions'] ?? [];
+                 if (isset($tier['product_type'])) {
+                     $conditions['product_type'] = $tier['product_type'];
+                 }
+                 $version->tiers()->create([
+                     'conditions' => $conditions,
+                     'agent_percentage' => (float) ($tier['agent_percentage'] ?? 0),
+                     'promoter_percentage' => (float) ($tier['promoter_percentage'] ?? 0),
+                 ]);
+             }
          }
  
         return redirect()->back();
@@ -230,7 +272,11 @@ class SchemeController extends Controller
 
     public function destroy(Scheme $scheme)
     {
+        $type = $scheme->type;
         $scheme->delete();
-        return response()->json(null, 204);
+
+        return $type === 'bonus'
+            ? redirect()->route('esquemas.bonos')->with('success', 'Esquema eliminado exitosamente.')
+            : redirect()->route('esquemas.index')->with('success', 'Esquema eliminado exitosamente.');
     }
 }

@@ -23,6 +23,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('promoters', PromoterController::class);
     Route::resource('agents', AgentController::class);
     Route::resource('policies', PolicyController::class);
+    Route::patch('policies/{policy}/status', [PolicyController::class, 'updateStatus'])->name('policies.status');
     Route::resource('schemes', SchemeController::class);
 
     // Módulo de Esquemas

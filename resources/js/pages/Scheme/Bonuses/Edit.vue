@@ -57,7 +57,6 @@ const currentVersion = props.scheme.versions[props.scheme.versions.length - 1] |
 
 const form = useForm({
     name: props.scheme.name,
-    // code: props.scheme.code,
     type: props.scheme.type,
     target: props.scheme.target,
     is_active: props.scheme.is_active,
@@ -136,15 +135,25 @@ const submit = () => {
                         <!-- Datos del Esquema -->
                         <div>
                             <h3 class="text-lg font-medium text-gray-900 border-b pb-2 mb-4">1. Datos Generales</h3>
+                            
+                            <div class="mb-6 bg-gray-50 p-4 rounded-md border border-gray-200">
+                                <label class="block text-sm font-bold text-gray-900 mb-2">Plantilla de Bono (Informativo)</label>
+                                <el-select :model-value="activeTemplateKey" style="width: 100%;" disabled>
+                                    <el-option label="Activity Ratio (Agentes)" value="agent_activity_ratio" />
+                                    <el-option label="Producción 1er Año Vida Trimestral (Agentes)" value="agent_first_year_production" />
+                                    <el-option label="Producción de 1er Año Trimestral (Promotor)" value="promoter_first_year_production" />
+                                    <el-option label="Adicional por Agentes con Compensación" value="promoter_additional_agents" />
+                                    <el-option label="Conexión (Reclutamiento PCA)" value="promoter_connection" />
+                                    <el-option label="Desarrollo Mensual" value="promoter_monthly_development" />
+                                </el-select>
+                                <p class="text-xs text-gray-500 mt-2">La plantilla determina las condiciones dinámicas y no puede ser modificada.</p>
+                            </div>
+
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Nombre del Bono</label>
                                     <el-input v-model="form.name" required />
                                 </div>
-                                <!-- <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Código Interno</label>
-                                    <el-input v-model="form.code" disabled />
-                                </div> -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Dirigido a</label>
                                     <el-select v-model="form.target" style="width: 100%;" disabled>
@@ -184,11 +193,11 @@ const submit = () => {
                             <div v-if="form.requires_anticipos" class="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-md grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-blue-900 mb-1">Meta Mínima Mes 1 para Anticipo ($)</label>
-                                    <el-input-number v-model="form.anticipos_config.month_1_min" :min="0" :step="1000" style="width: 100%;" />
+                                    <el-input-number v-model="form.anticipos_config.month_1_min" :min="0" :step="1000" :precision="2" style="width: 100%;" />
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-blue-900 mb-1">Meta Acumulada Mín. Mes 2 para Anticipo ($)</label>
-                                    <el-input-number v-model="form.anticipos_config.month_2_min" :min="0" :step="1000" style="width: 100%;" />
+                                    <el-input-number v-model="form.anticipos_config.month_2_min" :min="0" :step="1000" :precision="2" style="width: 100%;" />
                                 </div>
                             </div>
                         </div>
@@ -225,11 +234,11 @@ const submit = () => {
                                 <div class="space-y-4 border-l pl-6 border-gray-100">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Índice de Retención Mínimo (IRP %)</label>
-                                        <el-input-number v-model="form.min_irp" :min="0" :max="100" style="width: 100%;" />
+                                        <el-input-number v-model="form.min_irp" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" />
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Eficiencia de Cobro Mínima (%)</label>
-                                        <el-input-number v-model="form.min_collection_efficiency" :min="0" :max="100" style="width: 100%;" />
+                                        <el-input-number v-model="form.min_collection_efficiency" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" />
                                     </div>
                                 </div>
                             </div>
@@ -297,15 +306,15 @@ const submit = () => {
                                 <div v-for="(eq, index) in form.pna_equivalences" :key="index" class="flex items-center gap-4 bg-gray-50 p-4 border rounded-md">
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Mínimo PNA ($)</label>
-                                        <el-input-number v-model="eq.min_pna" :min="0" :step="1000" style="width: 100%;" />
+                                        <el-input-number v-model="eq.min_pna" :min="0" :step="1000" :precision="2" style="width: 100%;" />
                                     </div>
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Máximo PNA ($)</label>
-                                        <el-input-number v-model="eq.max_pna" :min="0" :step="1000" style="width: 100%;" placeholder="Sin límite" />
+                                        <el-input-number v-model="eq.max_pna" :min="0" :step="1000" :precision="2" style="width: 100%;" placeholder="Sin límite" />
                                     </div>
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Valor en Pólizas</label>
-                                        <el-input-number v-model="eq.policies" :min="0" :step="0.5" style="width: 100%;" />
+                                        <el-input-number v-model="eq.policies" :min="0" :step="0.5" :precision="2" style="width: 100%;" />
                                     </div>
                                     <el-button type="danger" plain @click="removeTier(index)" class="mt-2 md:mt-0">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

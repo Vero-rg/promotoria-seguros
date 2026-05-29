@@ -2,11 +2,14 @@
 import AppLayout from '@/layouts/AppLayout.vue';
 import { ref, computed } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Plus, FileText, Search, Edit, Trash2 } from 'lucide-vue-next';
+import { Plus, FileText, Search, Edit, Trash2, MoreHorizontal } from 'lucide-vue-next';
 import { ElMessage, ElMessageBox } from 'element-plus';
+
+const STATUS_OPTIONS = ['Activa', 'Cancelada', 'Pagada'];
 
 const props = defineProps({
     policies: Array,
+    promoters: Array,
 });
 
 const formatCurrency = (amount) => {
@@ -25,6 +28,7 @@ const statusColors = {
 
 const search = ref('');
 const agentFilter = ref('');
+const promoterFilter = ref('');
 const statusFilter = ref('');
 
 const uniqueAgents = computed(() => {
@@ -41,12 +45,28 @@ const uniqueAgents = computed(() => {
 
 const filteredPolicies = computed(() => {
     return props.policies.filter(p => {
-        const matchesSearch = p.policy_number.toString().includes(search.value) || (p.agent?.name || '').toLowerCase().includes(search.value.toLowerCase());
+        const agentName = (p.agent?.name || '').toLowerCase();
+        const promoterName = (p.agent?.promoter?.name || '').toLowerCase();
+        const searchLower = search.value.toLowerCase();
+
+        const matchesSearch = p.policy_number.toString().includes(search.value)
+            || agentName.includes(searchLower)
+            || promoterName.includes(searchLower);
+
         const matchesAgent = agentFilter.value === '' ? true : p.agent?.id === agentFilter.value;
+        const matchesPromoter = promoterFilter.value === '' ? true : p.agent?.promoter?.id === promoterFilter.value;
         const matchesStatus = statusFilter.value === '' ? true : p.status === statusFilter.value;
-        return matchesSearch && matchesAgent && matchesStatus;
+        return matchesSearch && matchesAgent && matchesPromoter && matchesStatus;
     });
 });
+
+const handleStatusChange = (row, newStatus) => {
+    router.patch(route('policies.status', row.id), { status: newStatus }, {
+        preserveScroll: true,
+        onSuccess: () => ElMessage({ type: 'success', message: `Estatus cambiado a "${newStatus}"` }),
+        onError: () => ElMessage({ type: 'error', message: 'Error al cambiar estatus.' }),
+    });
+};
 
 const handleRowClick = (row) => {
     router.get(route('policies.show', row.id));
@@ -97,6 +117,11 @@ const handleDelete = (row) => {
                            <el-option v-for="agent in uniqueAgents" :key="agent.id" :label="agent.name" :value="agent.id" />
                        </el-select>
 
+                       <el-select v-model="promoterFilter" placeholder="Todos los promotores" clearable class="w-full sm:max-w-[200px]">
+                           <el-option label="Todos" value="" />
+                           <el-option v-for="promoter in props.promoters" :key="promoter.id" :label="promoter.name" :value="promoter.id" />
+                       </el-select>
+
                        <el-select v-model="statusFilter" placeholder="Todos los estatus" clearable class="w-full sm:max-w-[150px]">
                            <el-option label="Todos" value="" />
                            <el-option label="Activa" value="Activa" />
@@ -108,9 +133,19 @@ const handleDelete = (row) => {
 
                <el-table :data="filteredPolicies" style="width: 100%" empty-text="No hay pólizas registradas." @row-click="handleRowClick" row-class-name="cursor-pointer">
                    <el-table-column prop="policy_number" label="No. Póliza" min-width="120" sortable />
-                   <el-table-column prop="agent.name" label="Agente" min-width="180" sortable>
+                   <el-table-column prop="client_name" label="Cliente" min-width="140" sortable>
+                       <template #default="{ row }">
+                           {{ row.client_name || '—' }}
+                       </template>
+                   </el-table-column>
+                   <el-table-column prop="agent.name" label="Agente" min-width="160" sortable>
                        <template #default="{ row }">
                            {{ row.agent?.name || 'N/A' }}
+                       </template>
+                   </el-table-column>
+                   <el-table-column prop="agent.promoter.name" label="Promotor" min-width="180" sortable>
+                       <template #default="{ row }">
+                           {{ row.agent?.promoter?.name || 'Sin asignar' }}
                        </template>
                    </el-table-column>
                    <el-table-column prop="issue_date" label="Emisión" width="120" sortable>
@@ -130,15 +165,31 @@ const handleDelete = (row) => {
                            </span>
                        </template>
                    </el-table-column>
-                   <el-table-column label="Acciones" width="120" align="right" fixed="right">
+                   <el-table-column label="Acciones" width="140" align="right" fixed="right">
                        <template #default="{ row }">
-                           <div class="flex items-center justify-end gap-2">
+                           <div class="flex items-center justify-end gap-1">
                                <button @click.stop="handleEdit(row)" class="p-2 text-gray-500 hover:text-blue-600 transition-colors cursor-pointer" title="Editar">
                                    <Edit class="w-4 h-4" />
                                </button>
                                <button @click.stop="handleDelete(row)" class="p-2 text-gray-500 hover:text-red-600 transition-colors cursor-pointer" title="Eliminar">
                                    <Trash2 class="w-4 h-4" />
                                </button>
+                               <el-dropdown trigger="click" @command="(cmd) => handleStatusChange(row, cmd)">
+                                   <button @click.stop class="p-2 text-gray-500 hover:text-gray-700 transition-colors cursor-pointer" title="Más opciones">
+                                       <MoreHorizontal class="w-4 h-4" />
+                                   </button>
+                                   <template #dropdown>
+                                       <el-dropdown-menu>
+                                           <el-dropdown-item 
+                                               v-for="s in STATUS_OPTIONS.filter(s => s !== row.status)" 
+                                               :key="s" 
+                                               :command="s"
+                                           >
+                                               Cambiar a {{ s }}
+                                           </el-dropdown-item>
+                                       </el-dropdown-menu>
+                                   </template>
+                               </el-dropdown>
                            </div>
                        </template>
                    </el-table-column>

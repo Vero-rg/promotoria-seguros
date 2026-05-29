@@ -1,20 +1,34 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { Percent, Award, Plus, ArrowRight, Edit, Trash2 } from 'lucide-vue-next';
+import { ElMessage, ElMessageBox } from 'element-plus';
 
 // Recibimos los esquemas (que desde el controlador serán solo los bonos)
 defineProps<{
     schemes: Array<{
         id: number;
         name: string;
-        // code: string;
         type: string;
         target: string;
         is_active: boolean;
         tiers: any[];
+        versions: Array<{ id: number; version_name: string; starts_at: string; ends_at: string | null }>;
     }>;
 }>();
+
+const handleDelete = (schemeId: number, schemeName: string) => {
+    ElMessageBox.confirm(
+        `¿Estás seguro de eliminar "${schemeName}"? Esta acción no se puede deshacer.`,
+        'Confirmar eliminación',
+        { confirmButtonText: 'Sí, eliminar', cancelButtonText: 'Cancelar', type: 'warning' }
+    ).then(() => {
+        router.delete(`/schemes/${schemeId}`, {
+            onSuccess: () => ElMessage({ type: 'success', message: 'Esquema eliminado correctamente.' }),
+            onError: () => ElMessage({ type: 'error', message: 'Error al eliminar el esquema.' }),
+        });
+    }).catch(() => {});
+};
 </script>
 
 <template>
@@ -102,6 +116,10 @@ defineProps<{
                                     <span class="text-gray-500">Niveles configurados:</span>
                                     <span class="font-medium text-gray-900">{{ scheme.tiers?.length || 0 }}</span>
                                 </div>
+                                <div class="flex justify-between text-sm" v-if="scheme.versions?.length">
+                                    <span class="text-gray-500">Versión:</span>
+                                    <span class="font-medium text-gray-900">{{ scheme.versions[scheme.versions.length - 1]?.version_name || '—' }}</span>
+                                </div>
                             </div>
                         </div>
 
@@ -111,7 +129,7 @@ defineProps<{
                                  <Link :href="`/esquemas/bonos/${scheme.id}/editar`" class="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all duration-200" title="Editar">
                                      <Edit class="w-4 h-4" />
                                  </Link>
-                                 <button class="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200" title="Eliminar">
+                                 <button @click="handleDelete(scheme.id, scheme.name)" class="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200" title="Eliminar">
                                      <Trash2 class="w-4 h-4" />
                                  </button>
                             </div>

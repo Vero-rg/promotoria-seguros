@@ -13,7 +13,6 @@ class Scheme extends Model
 
     protected $fillable = [
         'name',
-        'code',
         'type',
         'target',
         'is_active',
@@ -30,6 +29,7 @@ class Scheme extends Model
         'min_irp',
         'min_collection_efficiency',
         'quarterly_recruits',
+        'pna_equivalences',
     ];
 
     // Casteo para manejar los JSON de configuración directamente como Arrays en PHP
@@ -41,6 +41,7 @@ class Scheme extends Model
         'anticipos_config' => 'array',
         'requires_product' => 'array',
         'quarterly_recruits' => 'array',
+        'pna_equivalences' => 'array',
     ];
 
     // Relación: Un esquema (cuaderno) tiene muchas bandas/niveles a través de sus versiones

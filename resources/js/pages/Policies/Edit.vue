@@ -6,6 +6,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 defineProps({
     policy: Object,
     agents: Array,
+    productCommissionMap: Object,
 });
 
 const breadcrumbs = [
@@ -30,7 +31,7 @@ const breadcrumbs = [
                     <h1 class="text-xl font-semibold text-gray-900">Editar Póliza: {{ policy.policy_number }}</h1>
                 </div>
 
-                <PolicyForm :policy="policy" :agents="agents" :isEdit="true" />
+                <PolicyForm :policy="policy" :agents="agents" :productCommissionMap="productCommissionMap" :isEdit="true" />
             </div>
         </div>
     </AppLayout>    

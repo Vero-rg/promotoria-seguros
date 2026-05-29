@@ -13,8 +13,7 @@ const selectedTemplate = ref('activity_ratio');
 
 const templates = {
     activity_ratio: {
-        name: 'Compensación Vida Individual',
-        // code: 'agent_activity_ratio',
+        name: 'Activity Ratio',
         target: 'agent',
         metric_base: 'PCA',
         frequency: 'trimestral',
@@ -36,11 +35,15 @@ const templates = {
             { min_pna: 60000, max_pna: 119999, policies: 1.5 },
             { min_pna: 120000, max_pna: undefined, policies: 2.0 }
         ],
-        tiers: [{ conditions: { classification: 'Activo 12', min_policies: 1.0, max_policies: 1.49 }, agent_percentage: 2, agent_automatic_percentage: 0, promoter_percentage: 0 }]
+        tiers: [
+            { conditions: { classification: 'Activo 12', min_policies: 1.0, max_policies: 1.49 }, agent_percentage: 2},
+            { conditions: { classification: 'Activo 18', min_policies: 1.5, max_policies: 1.99 }, agent_percentage: 3},
+            { conditions: { classification: 'Productivo 24', min_policies: 2.0, max_policies: 2.99 }, agent_percentage: 5 },
+            { conditions: { classification: 'Productivo 36', min_policies: 3.0, max_policies: undefined }, agent_percentage: 7}        
+        ]
     },
     agent_first_year_production: {
         name: 'Producción 1er Año Vida Trimestral (3 meses)',
-        // code: 'agent_first_year_production',
         target: 'agent',
         metric_base: 'PCA',
         frequency: 'trimestral',
@@ -71,7 +74,6 @@ const templates = {
     },
     first_year_production: {
         name: 'Producción de 1er Año Trimestral',
-        // code: 'promoter_first_year_production',
         target: 'promoter',
         metric_base: 'PP',
         frequency: 'trimestral',
@@ -92,7 +94,6 @@ const templates = {
     },
     additional_agents: {
         name: 'Adicional por Agentes con Compensación',
-        // code: 'promoter_additional_agents',
         target: 'promoter',
         metric_base: 'PP',
         frequency: 'trimestral',
@@ -113,7 +114,6 @@ const templates = {
     },
     connection: {
         name: 'Conexión',
-        // code: 'promoter_connection',
         target: 'promoter',
         metric_base: 'PCA',
         frequency: 'mensual',
@@ -126,7 +126,7 @@ const templates = {
         dependency_scheme_id: null,
         min_irp: 0,
         min_collection_efficiency: 0,
-        quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
+        quarterly_recruits: { q1: 1, q2: 2, q3: 3, q4: 4 },
         component: markRaw(TierConnection),
         baseCondition: { min_recruits: 0, max_recruits: undefined, min_pca: 0 },
         pna_equivalences: [],
@@ -134,7 +134,6 @@ const templates = {
     },
     monthly_development: {
         name: 'Desarrollo Mensual',
-        // code: 'promoter_monthly_development',
         target: 'promoter',
         metric_base: 'PCA',
         frequency: 'mensual',
@@ -159,7 +158,6 @@ const currentTemplate = computed(() => templates[selectedTemplate.value as keyof
 
 const form = useForm({
     name: templates.activity_ratio.name,
-    // code: templates.activity_ratio.code,
     type: 'bonus',
     target: templates.activity_ratio.target,
     is_active: true,
@@ -188,7 +186,6 @@ const form = useForm({
 watch(selectedTemplate, (newVal) => {
     const tpl = templates[newVal as keyof typeof templates];
     form.name = tpl.name;
-    // form.code = tpl.code;
     form.target = tpl.target;
     
     form.metric_base = tpl.metric_base;
@@ -257,7 +254,7 @@ const submit = () => {
                             <div class="mb-6 bg-gray-50 p-4 rounded-md border border-gray-200">
                                 <label class="block text-sm font-bold text-gray-900 mb-2">Plantilla de Bono</label>
                                 <el-select v-model="selectedTemplate" style="width: 100%;">
-                                    <el-option label="Compensación Vida Individual (Agentes)" value="activity_ratio" />
+                                    <el-option label="Activity Ratio (Agentes)" value="activity_ratio" />
                                     <el-option label="Producción 1er Año Vida Trimestral (Agentes)" value="agent_first_year_production" />
                                     <el-option label="Producción de 1er Año Trimestral (Promotor)" value="first_year_production" />
                                     <el-option label="Adicional por Agentes con Compensación" value="additional_agents" />
@@ -272,10 +269,6 @@ const submit = () => {
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Nombre del Bono</label>
                                     <el-input v-model="form.name" required />
                                 </div>
-                                <!-- <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Código Interno</label>
-                                    <el-input v-model="form.code" required />
-                                </div> -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Dirigido a</label>
                                     <el-select v-model="form.target" style="width: 100%;" disabled>
@@ -315,11 +308,11 @@ const submit = () => {
                             <div v-if="form.requires_anticipos" class="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-md grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-blue-900 mb-1">Meta Mínima Mes 1 para Anticipo ($)</label>
-                                    <el-input-number v-model="form.anticipos_config.month_1_min" :min="0" :step="1000" style="width: 100%;" />
+                                    <el-input-number v-model="form.anticipos_config.month_1_min" :min="0" :step="0.01" :precision="2" style="width: 100%;" />
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-blue-900 mb-1">Meta Acumulada Mín. Mes 2 para Anticipo ($)</label>
-                                    <el-input-number v-model="form.anticipos_config.month_2_min" :min="0" :step="1000" style="width: 100%;" />
+                                    <el-input-number v-model="form.anticipos_config.month_2_min" :min="0" :step="0.01" :precision="2" style="width: 100%;" />
                                 </div>
                             </div>
                         </div>
@@ -357,11 +350,11 @@ const submit = () => {
                                 <div class="space-y-4 border-l pl-6 border-gray-100">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Índice de Retención Mínimo (IRP %)</label>
-                                        <el-input-number v-model="form.min_irp" :min="0" :max="100" style="width: 100%;" />
+                                        <el-input-number v-model="form.min_irp" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" />
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Eficiencia de Cobro Mínima (%)</label>
-                                        <el-input-number v-model="form.min_collection_efficiency" :min="0" :max="100" style="width: 100%;" />
+                                        <el-input-number v-model="form.min_collection_efficiency" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" />
                                     </div>
                                 </div>
                             </div>
@@ -423,15 +416,15 @@ const submit = () => {
                                 <div v-for="(eq, index) in form.pna_equivalences" :key="index" class="flex items-center gap-4 bg-gray-50 p-4 border rounded-md">
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Mínimo PNA ($)</label>
-                                        <el-input-number v-model="eq.min_pna" :min="0" :step="1000" style="width: 100%;" />
+                                        <el-input-number v-model="eq.min_pna" :min="0" :step="0.01" :precision="2" style="width: 100%;" />
                                     </div>
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Máximo PNA ($)</label>
-                                        <el-input-number v-model="eq.max_pna" :min="0" :step="1000" style="width: 100%;" placeholder="Sin límite" />
+                                        <el-input-number v-model="eq.max_pna" :min="0" :step="0.01" :precision="2" style="width: 100%;" placeholder="Sin límite" />
                                     </div>
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Valor en Pólizas</label>
-                                        <el-input-number v-model="eq.policies" :min="0" :step="0.5" style="width: 100%;" />
+                                        <el-input-number v-model="eq.policies" :min="0" :step="0.5" :precision="2" style="width: 100%;" />
                                     </div>
                                     <el-button type="danger" plain @click="removeTier(index)" class="mt-2 md:mt-0">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
