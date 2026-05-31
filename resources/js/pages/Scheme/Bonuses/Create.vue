@@ -159,6 +159,7 @@ const currentTemplate = computed(() => templates[selectedTemplate.value as keyof
 const form = useForm({
     name: templates.activity_ratio.name,
     type: 'bonus',
+    template_key: selectedTemplate.value,
     target: templates.activity_ratio.target,
     is_active: true,
     version_name: 'Tabulador Inicial',
@@ -185,6 +186,7 @@ const form = useForm({
 
 watch(selectedTemplate, (newVal) => {
     const tpl = templates[newVal as keyof typeof templates];
+    form.template_key = newVal;
     form.name = tpl.name;
     form.target = tpl.target;
     
@@ -247,6 +249,14 @@ const submit = () => {
                     </div>
 
                     <form @submit.prevent="submit" class="space-y-8">
+                        <!-- Errores de validación -->
+                        <div v-if="Object.keys(form.errors).length > 0" class="bg-red-50 border border-red-200 rounded-md p-4">
+                            <h4 class="text-red-800 font-semibold mb-2">Corrige los siguientes errores:</h4>
+                            <ul class="list-disc pl-5 text-sm text-red-600 space-y-1">
+                                <li v-for="(error, key) in form.errors" :key="key">{{ error }}</li>
+                            </ul>
+                        </div>
+
                         <!-- Datos del Esquema -->
                         <div>
                             <h3 class="text-lg font-medium text-gray-900 border-b pb-2 mb-4">1. Identidad del Esquema</h3>
@@ -254,8 +264,8 @@ const submit = () => {
                             <div class="mb-6 bg-gray-50 p-4 rounded-md border border-gray-200">
                                 <label class="block text-sm font-bold text-gray-900 mb-2">Plantilla de Bono</label>
                                 <el-select v-model="selectedTemplate" style="width: 100%;">
-                                    <el-option label="Activity Ratio (Agentes)" value="activity_ratio" />
                                     <el-option label="Producción 1er Año Vida Trimestral (Agentes)" value="agent_first_year_production" />
+                                    <el-option label="Activity Ratio (Agentes)" value="activity_ratio" />
                                     <el-option label="Producción de 1er Año Trimestral (Promotor)" value="first_year_production" />
                                     <el-option label="Adicional por Agentes con Compensación" value="additional_agents" />
                                     <el-option label="Conexión (Reclutamiento PCA)" value="connection" />
@@ -325,9 +335,8 @@ const submit = () => {
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Productos Requeridos (Opcional)</label>
                                         <el-select v-model="form.requires_product" multiple placeholder="Selecciona productos..." style="width: 100%;">
-                                            <el-option label="Vida" value="Vida" />
+                                            <el-option label="Vida (METLIFE / PERFECTLIFE)" value="Vida" />
                                             <el-option label="Primordial" value="Primordial" />
-                                            <el-option label="Gastos Médicos" value="GMM" />
                                         </el-select>
                                     </div>
                                     <div class="flex items-center gap-4">
@@ -426,7 +435,7 @@ const submit = () => {
                                         <label class="block text-xs text-gray-500 mb-1">Valor en Pólizas</label>
                                         <el-input-number v-model="eq.policies" :min="0" :step="0.5" :precision="2" style="width: 100%;" />
                                     </div>
-                                    <el-button type="danger" plain @click="removeTier(index)" class="mt-2 md:mt-0">
+                                    <el-button type="danger" plain @click="removeEquivalence(index)" class="mt-2 md:mt-0">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                             <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
                                         </svg>
@@ -449,10 +458,6 @@ const submit = () => {
                                      <component :is="currentTemplate.component" :conditions="tier.conditions" />
 
                                      <template v-if="selectedTemplate === 'agent_first_year_production'">
-                                         <div class="flex-1 min-w-[140px]">
-                                             <label class="block text-sm font-medium text-gray-700 mb-1">Bono Pago Directo (%)</label>
-                                             <el-input-number v-model="tier.agent_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
-                                         </div>
                                          <div class="flex-1 min-w-[140px]">
                                              <label class="block text-sm font-medium text-gray-700 mb-1">Bono Automático (%)</label>
                                              <el-input-number v-model="tier.agent_automatic_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />

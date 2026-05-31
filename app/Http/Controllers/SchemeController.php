@@ -65,6 +65,7 @@ class SchemeController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'type' => 'required|string',
+            'template_key' => 'nullable|string|max:255',
             'target' => 'required|string|in:promoter,agent,both',
             'is_active' => 'boolean',
             
@@ -94,6 +95,7 @@ class SchemeController extends Controller
             'tiers.*.conditions' => 'nullable|array',
             'tiers.*.product_type' => 'nullable|string',
             'tiers.*.agent_percentage' => 'nullable|numeric',
+            'tiers.*.agent_automatic_percentage' => 'nullable|numeric',
             'tiers.*.promoter_percentage' => 'nullable|numeric',
         ]);
 
@@ -111,9 +113,29 @@ class SchemeController extends Controller
                 ->update(['is_active' => false]);
         }
 
+        // ── Resolver dependency_scheme_id ─────────────────────────────
+        // El frontend puede enviar un nombre de esquema (string) o un ID (int).
+        // Si es un string no numérico, lo buscamos por nombre (template_key o name).
+        $dependencyId = null;
+        if (!empty($validated['dependency_scheme_id'])) {
+            $depInput = $validated['dependency_scheme_id'];
+            if (is_numeric($depInput)) {
+                $dependencyId = (int) $depInput;
+            } else {
+                $depScheme = Scheme::where('type', 'bonus')
+                    ->where(function ($q) use ($depInput) {
+                        $q->where('name', $depInput)
+                          ->orWhere('template_key', $depInput);
+                    })
+                    ->first();
+                $dependencyId = $depScheme?->id;
+            }
+        }
+
         $scheme = Scheme::create([
             'name' => $validated['name'],
             'type' => $validated['type'],
+            'template_key' => $validated['template_key'] ?? null,
             'target' => $validated['target'],
             'is_active' => $isActive,
             
@@ -126,7 +148,7 @@ class SchemeController extends Controller
             'requires_product' => $validated['requires_product'] ?? [],
             'min_product_count' => $validated['min_product_count'] ?? 0,
             'requires_mix' => $validated['requires_mix'] ?? false,
-            'dependency_scheme_id' => $validated['dependency_scheme_id'] ?? null,
+            'dependency_scheme_id' => $dependencyId,
             'min_irp' => $validated['min_irp'] ?? 0,
             'min_collection_efficiency' => $validated['min_collection_efficiency'] ?? 0,
             'quarterly_recruits' => $validated['quarterly_recruits'] ?? null,
@@ -147,6 +169,7 @@ class SchemeController extends Controller
             $version->tiers()->create([
                 'conditions' => $conditions,
                 'agent_percentage' => (float) ($tier['agent_percentage'] ?? 0),
+                'agent_automatic_percentage' => (float) ($tier['agent_automatic_percentage'] ?? 0),
                 'promoter_percentage' => (float) ($tier['promoter_percentage'] ?? 0),
             ]);    
         }
@@ -176,7 +199,9 @@ class SchemeController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'type' => 'required|string',
             'is_active' => 'boolean',
+            'template_key' => 'nullable|string|max:255',
             'target' => 'required|string|in:promoter,agent,both',
 
             // Reglas Globales (Update)
@@ -205,6 +230,7 @@ class SchemeController extends Controller
             'tiers.*.conditions' => 'nullable|array',
             'tiers.*.product_type' => 'nullable|string',
             'tiers.*.agent_percentage' => 'nullable|numeric',
+            'tiers.*.agent_automatic_percentage' => 'nullable|numeric',
             'tiers.*.promoter_percentage' => 'nullable|numeric',
         ]);
 
@@ -226,9 +252,28 @@ class SchemeController extends Controller
                 ->update(['is_active' => false]);
         }
 
+        // ── Resolver dependency_scheme_id ─────────────────────────────
+        $dependencyId = null;
+        if (!empty($validated['dependency_scheme_id'])) {
+            $depInput = $validated['dependency_scheme_id'];
+            if (is_numeric($depInput)) {
+                $dependencyId = (int) $depInput;
+            } else {
+                $depScheme = Scheme::where('type', 'bonus')
+                    ->where(function ($q) use ($depInput) {
+                        $q->where('name', $depInput)
+                          ->orWhere('template_key', $depInput);
+                    })
+                    ->where('id', '!=', $scheme->id) // No puede depender de sí mismo
+                    ->first();
+                $dependencyId = $depScheme?->id;
+            }
+        }
+
         $scheme->update([
             'name' => $validated['name'],
             'is_active' => $isActive,
+            'template_key' => $validated['template_key'] ?? $scheme->template_key,
             'target' => $validated['target'],
             'metric_base' => $validated['metric_base'],
             'frequency' => $validated['frequency'],
@@ -238,7 +283,7 @@ class SchemeController extends Controller
             'requires_product' => $validated['requires_product'] ?? [],
             'min_product_count' => $validated['min_product_count'] ?? 0,
             'requires_mix' => $validated['requires_mix'] ?? false,
-            'dependency_scheme_id' => $validated['dependency_scheme_id'] ?? null,
+            'dependency_scheme_id' => $dependencyId,
             'min_irp' => $validated['min_irp'] ?? 0,
             'min_collection_efficiency' => $validated['min_collection_efficiency'] ?? 0,
             'quarterly_recruits' => $validated['quarterly_recruits'] ?? null,
@@ -262,12 +307,13 @@ class SchemeController extends Controller
                  $version->tiers()->create([
                      'conditions' => $conditions,
                      'agent_percentage' => (float) ($tier['agent_percentage'] ?? 0),
+                     'agent_automatic_percentage' => (float) ($tier['agent_automatic_percentage'] ?? 0),
                      'promoter_percentage' => (float) ($tier['promoter_percentage'] ?? 0),
                  ]);
              }
          }
  
-        return redirect()->back();
+        return to_route($scheme->type === 'bonus' ? 'esquemas.bonos' : 'esquemas.index')->with('success', 'Esquema actualizado exitosamente.');
     }
 
     public function destroy(Scheme $scheme)

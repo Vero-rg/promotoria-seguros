@@ -162,7 +162,7 @@ const summary = computed(() => {
                                 <DollarSign class="w-4 h-4 mr-2" /> Información Financiera
                             </h3>
                             
-                            <div class="grid grid-cols-2 gap-4">
+                            <div class="grid grid-cols-2 gap-2">
                                 <div class="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
                                     <p class="text-xs text-blue-600/80 font-medium mb-1 uppercase">Prima Total</p>
                                     <p class="text-2xl font-bold text-blue-900">{{ formatCurrency(policy.premium_amount) }}</p>
@@ -205,7 +205,7 @@ const summary = computed(() => {
                         </h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <!-- Desglose -->
-                            <div class="space-y-3">
+                            <div class="space-y-0">
                                 <div class="flex justify-between items-center py-2">
                                     <span class="text-sm text-gray-600">Prima Total</span>
                                     <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.premium) }}</span>

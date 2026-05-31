@@ -36,10 +36,15 @@ defineProps<{
         }>;
     };
 }>();
+
+const breadcrumbs = [
+    { title: 'Comisiones', href: '/esquemas' },
+    { title: 'Información', href: '' },
+];
 </script>
 
 <template>
-    <AppLayout>
+    <AppLayout :breadcrumbs="breadcrumbs">
         <Head :title="`Detalles - ${scheme.name}`" />
 
         <div class="py-12 bg-slate-50 min-h-screen">
@@ -48,12 +53,6 @@ defineProps<{
                 <!-- Encabezado con Diseño Moderno -->
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <Link href="/esquemas" class="text-indigo-500 hover:text-indigo-700 text-sm font-medium flex items-center gap-2 mb-2 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                            </svg>
-                            Volver a Comisiones
-                        </Link>
                         <h2 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-800 to-slate-500 flex items-center gap-3">
                             {{ scheme.name }}
                             <span v-if="scheme.code" class="text-lg font-mono bg-slate-200 text-slate-600 px-3 py-1 rounded-lg">{{ scheme.code }}</span>

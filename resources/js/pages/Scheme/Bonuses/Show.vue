@@ -7,6 +7,7 @@ defineProps<{
         id: number;
         name: string;
         type: string;
+        template_key: string | null;
         target: string;
         is_active: boolean;
         metric_base: string | null;
@@ -35,15 +36,21 @@ defineProps<{
                 id: number;
                 conditions: Record<string, any>;
                 agent_percentage: string;
+                agent_automatic_percentage: string;
                 promoter_percentage: string;
             }>;
         }>;
     };
 }>();
+
+const breadcrumbs = [
+    { title: 'Bonos', href: '/esquemas/bonos' },
+    { title: 'Información', href: '' },
+];
 </script>
 
 <template>
-    <AppLayout>
+    <AppLayout :breadcrumbs="breadcrumbs">
         <Head :title="`Detalles - ${scheme.name}`" />
 
         <div class="py-12 bg-slate-50 min-h-screen">
@@ -52,12 +59,6 @@ defineProps<{
                 <!-- Encabezado con Diseño Moderno -->
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <Link href="/esquemas/bonos" class="text-indigo-500 hover:text-indigo-700 text-sm font-medium flex items-center gap-2 mb-2 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                            </svg>
-                            Volver a Bonos
-                        </Link>
                         <h2 class="text-3xl font-bold bg-clip-text text-zinc-800">
                             {{ scheme.name }}
                         </h2>
@@ -197,12 +198,17 @@ defineProps<{
                                             </div>
                                         </template>
                                     </el-table-column>
-                                    <el-table-column label="Bono Agente (%)" min-width="140" align="center">
+                                    <el-table-column v-if="scheme.target === 'agent' || scheme.target === 'both'" min-width="140" align="center">
+                                        <template #header>
+                                            <span v-if="scheme.template_key === 'agent_first_year_production'">Bono Automático (%)</span>
+                                            <span v-else>Bono Agente (%)</span>
+                                        </template>
                                         <template #default="scope">
-                                            <span class="font-bold text-slate-700 text-lg">{{ scope.row.agent_percentage }}%</span>
+                                            <span v-if="scheme.template_key === 'agent_first_year_production'" class="font-bold text-slate-700 text-lg">{{ scope.row.agent_automatic_percentage }}%</span>
+                                            <span v-else class="font-bold text-slate-700 text-lg">{{ scope.row.agent_percentage }}%</span>
                                         </template>
                                     </el-table-column>
-                                    <el-table-column label="Bono Promotor (%)" min-width="140" align="center">
+                                    <el-table-column v-if="scheme.target === 'promoter' || scheme.target === 'both'" label="Bono Promotor (%)" min-width="140" align="center">
                                         <template #default="scope">
                                             <span class="font-bold text-slate-700 text-lg">{{ scope.row.promoter_percentage }}%</span>
                                         </template>

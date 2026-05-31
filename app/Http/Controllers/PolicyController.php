@@ -15,7 +15,7 @@ class PolicyController extends Controller
      * Obtiene el mapa de producto → { agent_percentage, promoter_percentage }
      * desde los esquemas de comisión activos (última versión vigente).
      */
-    private function getProductCommissionMap(): array
+    public function getProductCommissionMap(): array
     {
         $schemes = Scheme::with(['versions.tiers'])
             ->where('type', 'commission')

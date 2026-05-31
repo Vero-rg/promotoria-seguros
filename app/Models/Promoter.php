@@ -12,6 +12,12 @@ class Promoter extends Model
 
     protected $fillable = [
         'name',
+        'photo',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
     ];
 
     // Relación: Un promotor tiene muchos agentes

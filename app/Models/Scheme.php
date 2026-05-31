@@ -14,6 +14,7 @@ class Scheme extends Model
     protected $fillable = [
         'name',
         'type',
+        'template_key',
         'target',
         'is_active',
         // Reglas Globales
@@ -42,6 +43,7 @@ class Scheme extends Model
         'requires_product' => 'array',
         'quarterly_recruits' => 'array',
         'pna_equivalences' => 'array',
+        'dependency_scheme_id' => 'integer',
     ];
 
     // Relación: Un esquema (cuaderno) tiene muchas bandas/niveles a través de sus versiones

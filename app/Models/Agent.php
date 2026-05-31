@@ -13,6 +13,12 @@ class Agent extends Model
     protected $fillable = [
         'promoter_id',
         'name',
+        'photo',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
     ];
 
     // Relación: Un agente pertenece a un promotor

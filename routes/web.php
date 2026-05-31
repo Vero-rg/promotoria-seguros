@@ -6,15 +6,14 @@ use App\Http\Controllers\AgentController;
 use App\Http\Controllers\PromoterController;
 use App\Http\Controllers\PolicyController;
 use App\Http\Controllers\SchemeController;
+use App\Http\Controllers\DashboardController;
 
 Route::get('/', function () {
     return Inertia::render('Welcome');
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('dashboard', function () {
-        return Inertia::render('Dashboard/Index');
-    })->name('dashboard');
+    Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     // Ruta unificada para el módulo de Directorio (Promotores y Agentes)
     Route::get('directorio', [PromoterController::class, 'index'])->name('directorio');
