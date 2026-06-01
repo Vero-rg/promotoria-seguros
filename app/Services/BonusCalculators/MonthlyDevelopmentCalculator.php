@@ -64,8 +64,8 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
             return $this->notAchieved('El esquema no tiene tiers configurados.');
         }
 
-        // ── 2. Validar que el promotor tenga agentes activos ──────────
-        $agents = $user->agents()->where('is_active', true)->get();
+        // ── 2. Validar que el promotor tenga agentes activos/en periodo ──
+        $agents = $user->agents()->activeInPeriod($periodEnd->toDateString())->get();
 
         if ($agents->isEmpty()) {
             return $this->notAchieved(
@@ -227,7 +227,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
         Carbon $periodStart,
         Carbon $periodEnd
     ): float {
-        $agentIds = $promoter->agents()->pluck('id');
+        $agentIds = $promoter->agents()->activeInPeriod($periodEnd->toDateString())->pluck('id');
 
         if ($agentIds->isEmpty()) {
             return 0.0;

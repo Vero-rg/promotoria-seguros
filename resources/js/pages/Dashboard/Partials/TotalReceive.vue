@@ -7,20 +7,20 @@ defineProps<{
 </script>
 
 <template>
-    <div class="bg-gradient-to-br from-emerald-50/50 to-white overflow-hidden rounded-3xl shadow-[0_4px_20px_-4px_rgba(16,185,129,0.1)] border border-emerald-100/50 p-6">
-        <div class="flex items-center">
-            <div class="p-3.5 rounded-2xl bg-emerald-500/10 text-emerald-600 mr-4 shadow-sm">
-                <TrendingUp class="w-6 h-6" />
-            </div>
-            <div>
-                <p class="text-xs font-semibold text-emerald-600/80 uppercase tracking-wider truncate">Monto Total a Recibir (Mes)</p>
-                <p class="text-2xl font-bold text-gray-800 tracking-tight">
-                    ${{ amount?.toFixed(2) ?? '0.00' }}
-                </p>
+    <div class="bg-white rounded-xl shadow-[0_1px_2px_rgba(0,0,0,0.02)] border border-gray-200/60 p-5 flex flex-col gap-4">
+        <div class="flex items-center justify-between">
+            <p class="text-[13px] font-medium text-gray-500">Total a Recibir (Mes)</p>
+            <div class="p-1.5 rounded-md border border-gray-100 bg-gray-50 flex items-center justify-center">
+                <TrendingUp class="w-[15px] h-[15px] text-gray-500" stroke-width="2" />
             </div>
         </div>
-        <p class="mt-3 text-xs text-gray-400/80 font-medium">
-            * Deduciendo bonos, comisiones y retenciones.
-        </p>
+        <div>
+            <p class="text-[22px] font-semibold text-gray-900 tracking-tight">
+                ${{ amount?.toFixed(2) ?? '0.00' }}
+            </p>
+            <p class="mt-1 text-[11px] text-gray-400 font-medium">
+                Deduciendo bonos, comisiones y retenciones.
+            </p>
+        </div>
     </div>
 </template>

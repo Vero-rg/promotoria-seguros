@@ -72,16 +72,24 @@ class DashboardController extends Controller
         });
         $incomeGrowth = $prevNetIncome > 0 ? round((($currentNetIncome - $prevNetIncome) / $prevNetIncome) * 100, 1) : 0;
 
-        // Volumen de Pólizas (por tipo de producto) — actual y periodo anterior
+        // PNA (Prima Neta Acumulada / Prima Pagada) y PCA (Prima Computable Acumulada)
+        // PNA = total de prima pagada por el cliente (suma de premium_amount)
+        // PCA = PNA - $1,500 por cada póliza (mín $0 por póliza). Es la base para cálculos de bonos.
+        $totalPNA = round($policies->sum('premium_amount'), 2);
+        $prevPNA = round($prevPolicies->sum('premium_amount'), 2);
+        $totalPCA = round($policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500)), 2);
+        $prevPCA = round($prevPolicies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500)), 2);
+
+        // Volumen de Pólizas (por tipo de producto) — usando nombres reales
         $policiesByProduct = [
-            '1' => $policies->where('product_type', '1')->count(),
-            '2' => $policies->where('product_type', '2')->count(),
-            '3' => $policies->where('product_type', '3')->count(),
+            'METLIFE' => $policies->where('product_type', 'METLIFE')->count(),
+            'PERFECTLIFE' => $policies->where('product_type', 'PERFECTLIFE')->count(),
+            'PRIMORDIAL' => $policies->where('product_type', 'PRIMORDIAL')->count(),
         ];
         $prevPoliciesByProduct = [
-            '1' => $prevPolicies->where('product_type', '1')->count(),
-            '2' => $prevPolicies->where('product_type', '2')->count(),
-            '3' => $prevPolicies->where('product_type', '3')->count(),
+            'METLIFE' => $prevPolicies->where('product_type', 'METLIFE')->count(),
+            'PERFECTLIFE' => $prevPolicies->where('product_type', 'PERFECTLIFE')->count(),
+            'PRIMORDIAL' => $prevPolicies->where('product_type', 'PRIMORDIAL')->count(),
         ];
         $totalPolicies = $policies->count();
         $prevTotalPolicies = $prevPolicies->count();
@@ -89,23 +97,23 @@ class DashboardController extends Controller
 
         // Premios vendidos por producto (volumen en $)
         $premiumByProduct = [
-            '1' => round($policies->where('product_type', '1')->sum('premium_amount'), 2),
-            '2' => round($policies->where('product_type', '2')->sum('premium_amount'), 2),
-            '3' => round($policies->where('product_type', '3')->sum('premium_amount'), 2),
+            'METLIFE' => round($policies->where('product_type', 'METLIFE')->sum('premium_amount'), 2),
+            'PERFECTLIFE' => round($policies->where('product_type', 'PERFECTLIFE')->sum('premium_amount'), 2),
+            'PRIMORDIAL' => round($policies->where('product_type', 'PRIMORDIAL')->sum('premium_amount'), 2),
         ];
         $prevPremiumByProduct = [
-            '1' => round($prevPolicies->where('product_type', '1')->sum('premium_amount'), 2),
-            '2' => round($prevPolicies->where('product_type', '2')->sum('premium_amount'), 2),
-            '3' => round($prevPolicies->where('product_type', '3')->sum('premium_amount'), 2),
+            'METLIFE' => round($prevPolicies->where('product_type', 'METLIFE')->sum('premium_amount'), 2),
+            'PERFECTLIFE' => round($prevPolicies->where('product_type', 'PERFECTLIFE')->sum('premium_amount'), 2),
+            'PRIMORDIAL' => round($prevPolicies->where('product_type', 'PRIMORDIAL')->sum('premium_amount'), 2),
         ];
 
         // Bonos Proyectados: total + desglose agente/promotor
         $bonusSchemes = Scheme::where('type', 'bonus')->where('is_active', true)->get();
         $agentBonusSchemes = $bonusSchemes->where('target', 'agent');
-        $promoterBonusSchemes2 = $bonusSchemes->where('target', 'promoter');
+        $promoterBonusSchemes = $bonusSchemes->where('target', 'promoter');
 
         $projectedAgentBonuses = $this->calculateProjectedBonuses($agentBonusSchemes, $policies);
-        $projectedPromoterBonuses = $this->calculateProjectedBonuses($promoterBonusSchemes2, $policies);
+        $projectedPromoterBonuses = $this->calculateProjectedBonuses($promoterBonusSchemes, $policies);
         $projectedBonuses = $projectedAgentBonuses + $projectedPromoterBonuses;
 
         $prevProjectedBonuses = $this->calculateProjectedBonuses($bonusSchemes, $prevPolicies);
@@ -116,92 +124,281 @@ class DashboardController extends Controller
         $activeAgents = Agent::where('is_active', true)->count();
 
         // ─── 2. ALERTAS INTELIGENTES ──────────────────
+        // Analiza agentes y promotores contra sus esquemas de bono/comisión
+        // para detectar oportunidades: cerca de desbloquear, mezcla de productos, etc.
 
         $alerts = [];
+        $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
 
-        // Alerta de cierre de periodo
+        // ── 2a. Alerta de cierre de periodo ──────────────────────────
         $daysToClose = now()->diffInDays(now()->endOfQuarter(), false);
         if ($daysToClose > 0 && $daysToClose <= 10) {
             $alerts[] = [
-                'type' => 'period',
-                'message' => "Faltan {$daysToClose} días para el cierre trimestral.",
+                'type' => 'period_close',
+                'message' => "⏰ Faltan {$daysToClose} días para el cierre trimestral. ¡Impulsa a tu equipo!",
                 'icon' => 'clock',
             ];
         }
 
-        // Alertas de agentes cerca de meta
-        $agentBonusSchemes = Scheme::where('type', 'bonus')->where('target', 'agent')->where('is_active', true)->get();
-        foreach ($agentBonusSchemes as $scheme) {
-            $latestVersion = $scheme->versions()->orderByDesc('starts_at')->first();
-            if (!$latestVersion) continue;
-            $tier = $latestVersion->tiers->first();
-            if (!$tier) continue;
-            $conditions = $tier->conditions ?? [];
-            $target = (float) ($conditions['target'] ?? 0);
-            $metric = $conditions['metric'] ?? '';
+        // ── 2b. Alertas de Agentes ────────────────────────────────────
+        // Evaluamos los agentes más productivos (top 20 por volumen)
+        $topAgentsForAlerts = Agent::with(['policies' => function ($q) use ($startDate, $endDate) {
+            $q->whereBetween('issue_date', [$startDate, $endDate]);
+        }])->where('is_active', true)->get()
+            ->sortByDesc(fn($a) => $a->policies->sum('premium_amount'))
+            ->take(20);
 
-            $allAgents = Agent::with(['policies' => function ($q) use ($startDate, $endDate) {
-                $q->whereBetween('issue_date', [$startDate, $endDate]);
-            }])->where('is_active', true)->get();
+        foreach ($topAgentsForAlerts as $agent) {
+            if (count($alerts) >= 15) break;
 
-            foreach ($allAgents as $agent) {
-                if ($metric === 'production') {
-                    $progress = $agent->policies->sum('premium_amount');
-                } else {
-                    $progress = $agent->policies->count();
-                }
+            $policiesCount = $agent->policies->count();
+            $totalVolume = round($agent->policies->sum('premium_amount'), 2);
+            $pca = round($agent->policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500)), 2);
 
-                $pct = $target > 0 ? ($progress / $target) * 100 : 0;
-                if ($pct >= 80 && $pct < 100) {
-                    $remaining = $metric === 'production' ? ($target - $progress) : (int)($target - $progress);
-                    $unit = $metric === 'production' ? 'en ventas' : 'póliza(s)';
-                    $alerts[] = [
-                        'type' => 'agent_near_goal',
-                        'message' => "{$agent->name} está a " . ($metric === 'production' ? '$' . number_format($remaining, 2) : "{$remaining} {$unit}") . " de asegurar su bono \"{$scheme->name}\".",
-                        'icon' => 'target',
-                    ];
-                }
-                if (count($alerts) >= 8) break 2; // limit alerts
+            // ── Comisiones: calcular lo generado vs lo potencial ──────
+            $productCommissionMap = app(\App\Http\Controllers\PolicyController::class)->getProductCommissionMap();
+            $currentCommission = $agent->policies->sum(function ($p) use ($productCommissionMap) {
+                $map = $productCommissionMap[$p->product_type] ?? null;
+                if ($map) return (float) $p->premium_amount * ($map['agent_percentage'] / 100);
+                return (float) $p->commission_amount;
+            });
+
+            // Alertas de volumen bajo: si tiene pocas pólizas
+            if ($policiesCount === 0 && $totalVolume === 0.0) {
+                // No alertamos por inactividad total (demasiado ruido)
+                continue;
             }
-        }
 
-        // Alertas de requisitos de promotores
-        $promoterBonusSchemes = Scheme::where('type', 'bonus')->where('target', 'promoter')->where('is_active', true)->get();
-        foreach ($promoterBonusSchemes as $scheme) {
-            $latestVersion = $scheme->versions()->orderByDesc('starts_at')->first();
-            if (!$latestVersion) continue;
-            $tier = $latestVersion->tiers->first();
-            if (!$tier) continue;
-            $conditions = $tier->conditions ?? [];
-            $target = (int) ($conditions['target'] ?? 0);
-            $metric = $conditions['metric'] ?? '';
+            // ── Evaluar cada bono activo para este agente ─────────────
+            try {
+                $orchestratorResult = $bonusOrchestrator->calculateAll(
+                    user: $agent,
+                    periodStart: $startDate,
+                    periodEnd: $endDate,
+                );
+                $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
 
-            if ($metric === 'recruits') {
-                $allPromoters = Promoter::where('is_active', true)->get();
-                foreach ($allPromoters as $promoter) {
-                    $recruits = Agent::where('promoter_id', $promoter->id)
-                        ->whereBetween('created_at', [$startDate, $endDate])->count();
-                    if ($recruits < $target && $recruits >= $target - 3 && $target > 0) {
+                foreach ($bonusesProgress as $bonus) {
+                    $name = $bonus['name'] ?? '';
+                    $unlocked = $bonus['unlocked'] ?? false;
+                    $conditions = $bonus['conditions'] ?? [];
+                    $progress = (float) ($bonus['progress'] ?? 0);
+                    $target = (float) ($bonus['target'] ?? 0);
+
+                    if ($unlocked) continue; // Ya lo desbloqueó
+
+                    $pct = $target > 0 ? round(($progress / $target) * 100, 1) : 0;
+
+                    // Alerta si está entre 50% y 99% del objetivo principal
+                    if ($pct >= 50 && $pct < 100 && $target > 0) {
+                        $firstCond = $conditions[0] ?? null;
+                        $metricLabel = $firstCond['label'] ?? 'progreso';
+                        $remaining = $target - $progress;
+                        $remainingFormatted = $remaining >= 1000
+                            ? '$' . number_format($remaining, 0)
+                            : round($remaining, 1);
+
                         $alerts[] = [
-                            'type' => 'promoter_requirement',
-                            'message' => "El equipo de {$promoter->name} necesita " . ($target - $recruits) . " reclutamiento(s) más para desbloquear \"{$scheme->name}\".",
-                            'icon' => 'users',
+                            'type' => 'agent_near_bonus',
+                            'message' => "🎯 {$agent->name} está al {$pct}% de desbloquear «{$name}» — le falta {$remainingFormatted} en {$metricLabel}.",
+                            'icon' => 'target',
                         ];
                     }
-                    if (count($alerts) >= 10) break 2;
+
+                    // Alerta de mezcla de productos: si un bono requiere mix y el agente solo vende 1 tipo
+                    foreach ($conditions as $cond) {
+                        $met = $cond['met'] ?? true;
+                        $label = $cond['label'] ?? '';
+                        if (!$met && stripos($label, 'mix') !== false) {
+                            $alerts[] = [
+                                'type' => 'agent_product_mix',
+                                'message' => "📦 {$agent->name} necesita diversificar productos para «{$name}» — requiere mezcla de ramos.",
+                                'icon' => 'target',
+                            ];
+                        }
+                    }
+
+                    if (count($alerts) >= 15) break 2;
                 }
+            } catch (\Exception $e) {
+                // Si falla el orquestador para un agente, continuamos con el siguiente
+                continue;
+            }
+
+            // ── Alerta de comisión: si tiene pólizas pero poca comisión ──
+            if ($policiesCount >= 2 && $currentCommission < $totalVolume * 0.05) {
+                $alerts[] = [
+                    'type' => 'agent_low_commission',
+                    'message' => "💸 {$agent->name} tiene {$policiesCount} pólizas pero su comisión (\$" . number_format($currentCommission, 0) . ") es baja. Revisa los productos vendidos.",
+                    'icon' => 'dollar',
+                ];
             }
         }
+
+        // ── 2c. Alertas de Promotores ──────────────────────────────────
+        $topPromotersForAlerts = Promoter::with(['agents.policies' => function ($q) use ($startDate, $endDate) {
+            $q->whereBetween('issue_date', [$startDate, $endDate]);
+        }])->where('is_active', true)->get()
+            ->sortByDesc(function ($p) {
+                return $p->agents->sum(fn($a) => $a->policies->sum('premium_amount'));
+            })
+            ->take(15);
+
+        foreach ($topPromotersForAlerts as $promoter) {
+            if (count($alerts) >= 20) break;
+
+            $teamVolume = $promoter->agents->sum(fn($a) => $a->policies->sum('premium_amount'));
+            $agentCount = $promoter->agents->where('is_active', true)->count();
+            $recruitsInPeriod = Agent::where('promoter_id', $promoter->id)
+                ->whereBetween('created_at', [$startDate, $endDate])->count();
+
+            // ── Evaluar cada bono para este promotor ──────────────────
+            try {
+                $orchestratorResult = $bonusOrchestrator->calculateAll(
+                    user: $promoter,
+                    periodStart: $startDate,
+                    periodEnd: $endDate,
+                );
+                $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
+
+                foreach ($bonusesProgress as $bonus) {
+                    $name = $bonus['name'] ?? '';
+                    $unlocked = $bonus['unlocked'] ?? false;
+                    $conditions = $bonus['conditions'] ?? [];
+                    $progress = (float) ($bonus['progress'] ?? 0);
+                    $target = (float) ($bonus['target'] ?? 0);
+
+                    if ($unlocked) continue;
+
+                    $pct = $target > 0 ? round(($progress / $target) * 100, 1) : 0;
+
+                    // Alerta de bonos cerca de desbloquear (50-99%)
+                    if ($pct >= 50 && $pct < 100 && $target > 0) {
+                        $firstCond = $conditions[0] ?? null;
+                        $metricLabel = $firstCond['label'] ?? 'progreso';
+                        $remaining = $target - $progress;
+                        $remainingFormatted = $remaining >= 1000
+                            ? '$' . number_format($remaining, 0)
+                            : round($remaining, 1);
+
+                        $alerts[] = [
+                            'type' => 'promoter_near_bonus',
+                            'message' => "🏆 {$promoter->name} está al {$pct}% de «{$name}» — faltan {$remainingFormatted} en {$metricLabel}.",
+                            'icon' => 'award',
+                        ];
+                    }
+
+                    // Condiciones no cumplidas específicas
+                    foreach ($conditions as $cond) {
+                        $met = $cond['met'] ?? true;
+                        $label = $cond['label'] ?? '';
+
+                        // Reclutamiento bajo
+                        if (!$met && (stripos($label, 'recluta') !== false || stripos($label, 'agente') !== false)) {
+                            $current = $cond['current'] ?? 0;
+                            $tgt = $cond['target'] ?? 0;
+                            if ($current > 0 && $tgt > 0 && $current >= $tgt - 3) {
+                                $alerts[] = [
+                                    'type' => 'promoter_recruits',
+                                    'message' => "👥 A {$promoter->name} le falta(n) " . ($tgt - $current) . " recluta(s) más para «{$name}» (tiene {$current} de {$tgt}).",
+                                    'icon' => 'users',
+                                ];
+                            }
+                        }
+
+                        // IRP bajo
+                        if (!$met && stripos($label, 'IRP') !== false) {
+                            $current = $cond['current'] ?? 0;
+                            $tgt = $cond['target'] ?? 0;
+                            $alerts[] = [
+                                'type' => 'promoter_low_irp',
+                                'message' => "📉 {$promoter->name} tiene IRP de {$current}% (mín. {$tgt}%) para «{$name}». Revisa retención de pólizas.",
+                                'icon' => 'alert',
+                            ];
+                        }
+                    }
+
+                    if (count($alerts) >= 20) break 2;
+                }
+            } catch (\Exception $e) {
+                continue;
+            }
+
+            // ── Alerta de equipo sin reclutas ──────────────────────────
+            if ($agentCount >= 3 && $recruitsInPeriod === 0) {
+                $alerts[] = [
+                    'type' => 'promoter_no_recruits',
+                    'message' => "🧑‍🤝‍🧑 {$promoter->name} tiene {$agentCount} agentes pero 0 reclutas este periodo. Motívalo a expandir su red.",
+                    'icon' => 'users',
+                ];
+            }
+
+            // ── Alerta de agentes inactivos ────────────────────────────
+            $inactiveAgents = $promoter->agents->where('is_active', false)->count();
+            if ($inactiveAgents >= 2) {
+                $alerts[] = [
+                    'type' => 'promoter_inactive_agents',
+                    'message' => "⚠️ {$promoter->name} tiene {$inactiveAgents} agentes inactivos. Considera dar de baja o reactivar.",
+                    'icon' => 'alert',
+                ];
+            }
+        }
+
+        // ── 2d. Alerta Global: pólizas sin producto asignado ──────────
+        $policiesWithoutProduct = $policies->where(fn($p) => empty($p->product_type))->count();
+        if ($policiesWithoutProduct > 0) {
+            $alerts[] = [
+                'type' => 'data_quality',
+                'message' => "📋 Hay {$policiesWithoutProduct} póliza(s) sin tipo de producto asignado. Corrige esto para métricas precisas.",
+                'icon' => 'alert',
+            ];
+        }
+
+        // Limitar alertas a 20 máximo para no saturar
+        $alerts = array_slice($alerts, 0, 20);
 
         // ─── 3. TOP 5 AGENTES ─────────────────────────
         $topAgents = Agent::with(['policies' => function ($q) use ($startDate, $endDate) {
             $q->whereBetween('issue_date', [$startDate, $endDate]);
         }])->where('is_active', true)->get()
-            ->map(function ($agent) use ($startDate, $endDate) {
+            ->map(function ($agent) use ($startDate, $endDate, $agentBonusSchemes) {
                 // Sparkline: daily policy count
                 $dailyData = $agent->policies
                     ->groupBy(fn($p) => $p->issue_date->toDateString())
                     ->map(fn($g) => $g->count())
+                    ->toArray();
+
+                // Calcular comisiones ganadas
+                $productCommissionMap = app(\App\Http\Controllers\PolicyController::class)->getProductCommissionMap();
+                $totalCommission = $agent->policies->sum(function ($policy) use ($productCommissionMap) {
+                    $map = $productCommissionMap[$policy->product_type] ?? null;
+                    if ($map) {
+                        return (float) $policy->premium_amount * ($map['agent_percentage'] / 100);
+                    }
+                    return (float) $policy->commission_amount;
+                });
+
+                // Calcular bonos ganados por este agente (usando el orquestador)
+                $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
+                $orchestratorResult = $bonusOrchestrator->calculateAll(
+                    user: $agent,
+                    periodStart: $startDate,
+                    periodEnd: $endDate,
+                );
+                $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
+                $bonusNames = collect($bonusesProgress)
+                    ->filter(fn($b) => $b['unlocked'] ?? false)
+                    ->pluck('name')
+                    ->values()
+                    ->toArray();
+                $bonusDetails = collect($bonusesProgress)
+                    ->filter(fn($b) => $b['unlocked'] ?? false)
+                    ->map(fn($b) => [
+                        'name' => $b['name'] ?? '',
+                        'amount' => $b['amount'] ?? 0,
+                        'progress_label' => $b['progress_label'] ?? '',
+                    ])
+                    ->values()
                     ->toArray();
 
                 return [
@@ -210,6 +407,9 @@ class DashboardController extends Controller
                     'photo' => $agent->photo,
                     'policies_count' => $agent->policies->count(),
                     'total_volume' => round($agent->policies->sum('premium_amount'), 2),
+                    'total_commission' => round($totalCommission, 2),
+                    'bonus_names' => $bonusNames,
+                    'bonus_details' => $bonusDetails,
                     'sparkline' => array_values($dailyData),
                     'sparkline_labels' => array_keys($dailyData),
                 ];
@@ -227,9 +427,10 @@ class DashboardController extends Controller
                     return $agent->policies->sum('premium_amount');
                 });
 
-                // Calcular cuántos bonos de los 4 tiene asegurados
+                // Calcular cuántos bonos de los 4 tiene asegurados + nombres
                 $bonusesSecured = 0;
                 $bonusesTotal = $promoterBonusSchemes->count();
+                $bonusNames = [];
 
                 foreach ($promoterBonusSchemes as $scheme) {
                     $latestVersion = $scheme->versions()->orderByDesc('starts_at')->first();
@@ -257,8 +458,38 @@ class DashboardController extends Controller
                         })->count();
                     }
 
-                    if ($progress >= $target && $target > 0) $bonusesSecured++;
+                    if ($progress >= $target && $target > 0) {
+                        $bonusesSecured++;
+                        $bonusNames[] = $scheme->name;
+                    }
                 }
+
+                // Bonus details usando el orquestador para obtener montos
+                $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
+                $orchestratorResult = $bonusOrchestrator->calculateAll(
+                    user: $promoter,
+                    periodStart: $startDate,
+                    periodEnd: $endDate,
+                );
+                $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
+                $bonusDetails = collect($bonusesProgress)
+                    ->filter(fn($b) => $b['unlocked'] ?? false)
+                    ->map(fn($b) => [
+                        'name' => $b['name'] ?? '',
+                        'amount' => $b['amount'] ?? 0,
+                        'progress_label' => $b['progress_label'] ?? '',
+                    ])
+                    ->values()
+                    ->toArray();
+
+                // Reconstruir bonusNames desde el orquestador (más preciso)
+                $bonusNames = collect($bonusesProgress)
+                    ->filter(fn($b) => $b['unlocked'] ?? false)
+                    ->pluck('name')
+                    ->values()
+                    ->toArray();
+                $bonusesSecured = count($bonusNames);
+                $bonusesTotal = max(count($bonusesProgress), 4);
 
                 return [
                     'id' => $promoter->id,
@@ -266,7 +497,9 @@ class DashboardController extends Controller
                     'photo' => $promoter->photo,
                     'team_volume' => round($teamVolume, 2),
                     'bonuses_secured' => $bonusesSecured,
-                    'bonuses_total' => max($bonusesTotal, 4),
+                    'bonuses_total' => $bonusesTotal,
+                    'bonus_names' => $bonusNames,
+                    'bonus_details' => $bonusDetails,
                 ];
             })
             ->sortByDesc('team_volume')
@@ -294,6 +527,10 @@ class DashboardController extends Controller
                 'net_income' => round($currentNetIncome, 2),
                 'prev_net_income' => round($prevNetIncome, 2),
                 'income_growth' => $incomeGrowth,
+                'total_pna' => $totalPNA,
+                'prev_pna' => $prevPNA,
+                'total_pca' => $totalPCA,
+                'prev_pca' => $prevPCA,
                 'policies_by_product' => $policiesByProduct,
                 'prev_policies_by_product' => $prevPoliciesByProduct,
                 'total_policies' => $totalPolicies,
@@ -318,24 +555,43 @@ class DashboardController extends Controller
 
     /**
      * Calcula la proyección de bonos basado en esquemas activos y pólizas actuales.
+     * PCA = PNA - $1,500 por póliza (base para cálculos de bonos).
      */
     private function calculateProjectedBonuses($bonusSchemes, $policies): float
     {
         $total = 0;
 
+        // PCA total del periodo (base para proyecciones porcentuales)
+        $totalPCA = $policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500));
+
         foreach ($bonusSchemes as $scheme) {
             $latestVersion = $scheme->versions()->orderByDesc('starts_at')->first();
             if (!$latestVersion) continue;
 
-            foreach ($latestVersion->tiers as $tier) {
-                $fixedAmount = (float) ($tier->fixed_amount ?? 0);
-                if ($fixedAmount > 0) {
-                    // Si es un bono fijo, se suma si hay prospectos que lo están alcanzando
-                    $total += $fixedAmount;
+            // Encontrar el tier con mayor porcentaje (mejor escenario)
+            $bestTier = $latestVersion->tiers->sortByDesc(function ($tier) {
+                return (float) ($tier->agent_percentage ?? $tier->agent_automatic_percentage ?? $tier->promoter_percentage ?? 0);
+            })->first();
+
+            if (!$bestTier) continue;
+
+            $fixedAmount = (float) ($bestTier->fixed_amount ?? 0);
+            if ($fixedAmount > 0) {
+                $total += $fixedAmount;
+            } else {
+                // Usar el porcentaje del mejor tier sobre la PCA total
+                $percentage = (float) (
+                    $bestTier->agent_percentage
+                    ?? $bestTier->agent_automatic_percentage
+                    ?? $bestTier->promoter_percentage
+                    ?? 0
+                );
+                if ($percentage > 0) {
+                    $total += $totalPCA * ($percentage / 100);
                 }
             }
         }
 
-        return $total;
+        return round($total, 2);
     }
 }

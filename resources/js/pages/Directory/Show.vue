@@ -82,10 +82,15 @@ const fetchWithDateRange = () => {
 
 // ─── Botón Histórico ──────────────────────────────
 const showHistorical = () => {
+    const start = props.entity.entry_date || props.entity.created_at?.split('T')[0] || '';
+    const end = new Date().toISOString().split('T')[0];
+
+    dateRange.value = [start, end];
+
     const routeName = props.type === 'promoter' ? 'promoters.show' : 'agents.show';
     router.get(route(routeName, props.entity.id), {
-        start_date: props.entity.entry_date || props.entity.created_at?.split('T')[0] || '',
-        end_date: new Date().toISOString().split('T')[0],
+        start_date: start,
+        end_date: end,
     }, {
         preserveState: true,
         preserveScroll: true,
@@ -104,7 +109,7 @@ const toggleAgent = (agentId) => {
     <AppLayout :breadcrumbs="breadcrumbs">
         <Head :title="entity.name" />
 
-        <div class="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
             <!-- ========== HEADER CARD ========== -->
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -149,7 +154,7 @@ const toggleAgent = (agentId) => {
                             </div>
                             <div v-if="type === 'promoter'" class="flex items-center text-sm text-gray-900">
                                 <Users class="w-4 h-4 mr-2 text-gray-400" />
-                                Agentes en red: <span class="ml-1 font-medium">{{ entity.agents?.length || 0 }}</span>
+                                Agentes en red: <span class="ml-1 font-medium">{{ entity.agents?.filter(a => a.is_active).length || 0 }}</span>
                             </div>
                         </div>
                     </div>

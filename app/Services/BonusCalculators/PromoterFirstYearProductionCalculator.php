@@ -176,7 +176,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
      */
     private function calculatePP(Promoter $promoter, Carbon $start, Carbon $end): float
     {
-        $agentIds = $promoter->agents()->pluck('id');
+        $agentIds = $promoter->agents()->activeInPeriod($end->toDateString())->pluck('id');
         if ($agentIds->isEmpty()) {
             return 0.0;
         }
@@ -192,7 +192,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
      */
     private function calculateIRP(Promoter $promoter, Carbon $start, Carbon $end): float
     {
-        $agentIds = $promoter->agents()->pluck('id');
+        $agentIds = $promoter->agents()->activeInPeriod($end->toDateString())->pluck('id');
         if ($agentIds->isEmpty()) {
             return 0.0;
         }
@@ -217,7 +217,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
      */
     private function countPoliciesByType(Promoter $promoter, string $productType, Carbon $start, Carbon $end): int
     {
-        $agentIds = $promoter->agents()->pluck('id');
+        $agentIds = $promoter->agents()->activeInPeriod($end->toDateString())->pluck('id');
         $resolvedTypes = $this->resolveProductAlias($productType);
 
         return Policy::whereIn('agent_id', $agentIds)

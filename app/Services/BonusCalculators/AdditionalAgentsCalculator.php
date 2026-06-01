@@ -69,7 +69,7 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
         }
 
         // ── 3. Métricas ─────────────────────────────────────────────────
-        $activeAgentCount = $this->countActiveAgents($user);
+        $activeAgentCount = $this->countActiveAgents($user, $periodEnd);
         $totalPP = $this->calculateTotalPP($user, $periodStart, $periodEnd);
 
         // ── 4. Evaluar tiers (mejor porcentaje primero) ──────────────────
@@ -130,18 +130,18 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
-    private function countActiveAgents(Promoter $promoter): int
+    private function countActiveAgents(Promoter $promoter, Carbon $periodEnd): int
     {
-        return $promoter->agents()->where('is_active', true)->count();
+        return $promoter->agents()->activeInPeriod($periodEnd->toDateString())->count();
     }
 
     /**
-     * Calcula la PP total (Prima Pagada) de todos los agentes del promotor
-     * en el periodo.
+     * Calcula la PP total (Prima Pagada) de todos los agentes activos/en periodo
+     * del promotor en el rango de fechas.
      */
     private function calculateTotalPP(Promoter $promoter, Carbon $start, Carbon $end): float
     {
-        $agentIds = $promoter->agents()->pluck('id');
+        $agentIds = $promoter->agents()->activeInPeriod($end->toDateString())->pluck('id');
         if ($agentIds->isEmpty()) {
             return 0.0;
         }

@@ -125,11 +125,13 @@ class PromoterController extends Controller
         $startDate = $request->query('start_date', now()->startOfMonth()->toDateString());
         $endDate = $request->query('end_date', now()->endOfMonth()->toDateString());
 
-        // Cargar agentes con sus pólizas filtradas por el rango de fechas
+        // Cargar agentes con sus pólizas filtradas por el rango de fechas.
+        // Solo se incluyen agentes activos O inactivos dados de baja en el mes del periodo o después.
         $promoter->load(['agents' => function ($query) use ($startDate, $endDate) {
-            $query->with(['policies' => function ($q) use ($startDate, $endDate) {
-                $q->whereBetween('issue_date', [$startDate, $endDate])->latest('issue_date');
-            }]);
+            $query->activeInPeriod($endDate)
+                ->with(['policies' => function ($q) use ($startDate, $endDate) {
+                    $q->whereBetween('issue_date', [$startDate, $endDate])->latest('issue_date');
+                }]);
         }]);
 
         $agents = $promoter->agents;

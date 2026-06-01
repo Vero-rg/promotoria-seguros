@@ -150,7 +150,7 @@ const isLockedByDependency = (bonus, index) => {
         </div>
 
         <div v-if="bonuses.length > 0" class="p-5 space-y-6">
-            <div v-for="(bonus, idx) in bonuses" :key="idx" class="space-y-3" :class="isLockedByDependency(bonus, idx) ? 'opacity-50' : ''">
+            <div v-for="(bonus, idx) in bonuses" :key="idx" class="space-y-3" :class="isLockedByDependency(bonus, idx) ? '' : ''">
                 <!-- Cabecera del Bono -->
                 <div class="flex items-center justify-between">
                     <div class="flex items-center space-x-2">

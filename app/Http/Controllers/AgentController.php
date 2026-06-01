@@ -118,6 +118,17 @@ class AgentController extends Controller
             $validated['photo'] = $request->file('photo')->store('photos', 'public');
         }
 
+        // Gestionar deactivated_at según el cambio de estado
+        if (array_key_exists('is_active', $validated)) {
+            if ($validated['is_active'] && $agent->deactivated_at !== null) {
+                // Se reactiva → limpiar fecha de baja
+                $validated['deactivated_at'] = null;
+            } elseif (!$validated['is_active'] && $agent->is_active) {
+                // Se da de baja → registrar fecha
+                $validated['deactivated_at'] = now();
+            }
+        }
+
         $agent->update($validated);
         return redirect()->route('directorio')->with('success', 'Agente actualizado correctamente.');
     }

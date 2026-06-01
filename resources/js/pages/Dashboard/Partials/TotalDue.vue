@@ -7,17 +7,17 @@ defineProps<{
 </script>
 
 <template>
-    <div class="bg-gradient-to-br from-red-50/50 to-white overflow-hidden rounded-3xl shadow-[0_4px_20px_-4px_rgba(239,68,68,0.1)] border border-red-100/50 p-6">
-        <div class="flex items-center">
-            <div class="p-3.5 rounded-2xl bg-red-500/10 text-red-600 mr-4 shadow-sm">
-                <AlertCircle class="w-6 h-6" />
+    <div class="bg-white rounded-xl shadow-[0_1px_2px_rgba(0,0,0,0.02)] border border-gray-200/60 p-5 flex flex-col gap-4">
+        <div class="flex items-center justify-between">
+            <p class="text-[13px] font-medium text-gray-500">Total Vencido</p>
+            <div class="p-1.5 rounded-md border border-red-100 bg-red-50 flex items-center justify-center">
+                <AlertCircle class="w-[15px] h-[15px] text-red-600" stroke-width="2" />
             </div>
-            <div>
-                <p class="text-xs font-semibold text-red-600/80 uppercase tracking-wider truncate">Total Vencido</p>
-                <p class="text-2xl font-bold text-gray-800 tracking-tight">
-                    ${{ amount?.toFixed(2) ?? '0.00' }}
-                </p>
-            </div>
+        </div>
+        <div>
+            <p class="text-[22px] font-semibold text-gray-900 tracking-tight">
+                ${{ amount?.toFixed(2) ?? '0.00' }}
+            </p>
         </div>
     </div>
 </template>

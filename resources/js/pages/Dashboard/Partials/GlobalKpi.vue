@@ -8,8 +8,9 @@ const props = defineProps<{
     prevValue?: string | number;
     icon: any;
     growth?: number;
-    color?: string;
     subtitle?: string;
+    iconBgClass?: string;
+    iconColorClass?: string;
     detail?: Array<{ label: string; current: string | number; prev?: string | number }>;
 }>();
 
@@ -19,44 +20,50 @@ const isNeutral = computed(() => (props.growth ?? 0) === 0);
 </script>
 
 <template>
-    <div class="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-white/50 p-6 hover:shadow-[0_8px_30px_-4px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 group cursor-default">
-        <div class="flex items-start justify-between mb-4">
-            <p class="text-xs font-semibold text-gray-400/80 uppercase tracking-wider">{{ label }}</p>
-            <div class="p-3 rounded-2xl transition-colors shadow-sm" :class="color || 'bg-gray-50'">
-                <component :is="icon" class="w-5 h-5" :class="(color || 'bg-gray-50').replace('bg-', 'text-').replace('/10', '').replace('/20', '')" />
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 transition-shadow hover:shadow-md flex flex-col gap-3">
+        <!-- Cabecera: Icono con bg de color + Label -->
+        <div class="flex items-center space-x-3">
+            <div :class="iconBgClass || 'bg-gray-50'" class="p-2.5 rounded-xl flex items-center justify-center">
+                <component :is="icon" :class="iconColorClass || 'text-gray-500'" class="w-5 h-5" stroke-width="1.8" />
             </div>
+            <p class="text-sm font-medium text-gray-500">{{ label }}</p>
         </div>
 
-        <div class="space-y-1.5">
-            <p class="text-3xl font-semibold text-gray-800 tracking-tight">{{ value }}</p>
+        <!-- Valor Principal -->
+        <div>
+            <p class="text-[26px] font-bold text-gray-900 tracking-tight">{{ value }}</p>
 
-            <!-- Indicador de crecimiento vs periodo anterior -->
-            <div v-if="growth !== undefined" class="flex items-center space-x-1">
-                <TrendingUp v-if="isPositive" class="w-3.5 h-3.5 text-[#4a7c59]" />
-                <TrendingDown v-else-if="!isNeutral" class="w-3.5 h-3.5 text-red-500" />
-                <Minus v-else class="w-3.5 h-3.5 text-gray-400" />
-                <span class="text-xs font-medium" :class="isPositive ? 'text-[#4a7c59]' : (!isNeutral ? 'text-red-500' : 'text-gray-400')">
-                    {{ growthAbs }}% vs periodo anterior
+            <!-- Indicador de crecimiento o valor anterior -->
+            <div v-if="growth !== undefined" class="flex items-center space-x-1.5 mt-1.5">
+                <div class="flex items-center justify-center p-0.5 rounded" :class="isPositive ? 'bg-emerald-50 text-emerald-600' : (!isNeutral ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500')">
+                    <TrendingUp v-if="isPositive" class="w-3 h-3" stroke-width="2.5" />
+                    <TrendingDown v-else-if="!isNeutral" class="w-3 h-3" stroke-width="2.5" />
+                    <Minus v-else class="w-3 h-3" stroke-width="2.5" />
+                </div>
+                <span class="text-xs font-semibold" :class="isPositive ? 'text-emerald-600' : (!isNeutral ? 'text-red-600' : 'text-gray-500')">
+                    {{ growthAbs }}%
                 </span>
+                <span class="text-xs text-gray-400">vs periodo anterior</span>
             </div>
-
-            <!-- Valor anterior -->
-            <p v-if="prevValue !== undefined" class="text-xs text-gray-400">
-                Anterior: {{ prevValue }}
-            </p>
-
-            <p v-if="subtitle" class="text-xs text-gray-400">{{ subtitle }}</p>
+            <div v-else-if="prevValue !== undefined" class="mt-1.5">
+                <span class="text-xs text-gray-400">Anterior: {{ prevValue }}</span>
+            </div>
+            <div v-else-if="subtitle" class="mt-1.5">
+                <span class="text-xs text-gray-400">{{ subtitle }}</span>
+            </div>
         </div>
 
-        <!-- Detalle / Desglose expandible -->
-        <div v-if="detail && detail.length > 0" class="mt-3 pt-3 border-t border-gray-50 space-y-1.5">
-            <div v-for="(d, idx) in detail" :key="idx" class="flex justify-between text-xs">
-                <span class="text-gray-400">{{ d.label }}</span>
-                <div class="flex items-center space-x-2">
-                    <span class="font-medium text-gray-700">{{ d.current }}</span>
-                    <span v-if="d.prev !== undefined" class="text-gray-300">
-                        ← {{ d.prev }}
-                    </span>
+        <!-- Detalle / Desglose -->
+        <div v-if="detail && detail.length > 0" class="mt-1 pt-3 border-t border-gray-100">
+            <div class="grid gap-2">
+                <div v-for="(d, idx) in detail" :key="idx" class="flex justify-between items-center">
+                    <span class="text-xs text-gray-400 font-medium">{{ d.label }}</span>
+                    <div class="flex items-center gap-2">
+                        <span v-if="d.prev !== undefined" class="text-xs text-gray-300 line-through decoration-gray-300">
+                            {{ d.prev }}
+                        </span>
+                        <span class="text-sm font-semibold text-gray-800">{{ d.current }}</span>
+                    </div>
                 </div>
             </div>
         </div>

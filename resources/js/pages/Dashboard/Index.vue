@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { router } from '@inertiajs/vue3';
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { DollarSign, FileText, Award, Users, LayoutDashboard } from 'lucide-vue-next';
+import { DollarSign, FileText, Award, Users } from 'lucide-vue-next';
 import GlobalKpi from './Partials/GlobalKpi.vue';
 import SmartAlerts from './Partials/SmartAlerts.vue';
 import TopPerformers from './Partials/TopPerformers.vue';
@@ -17,6 +17,10 @@ const props = defineProps<{
         net_income: number;
         prev_net_income: number;
         income_growth: number;
+        total_pna: number;
+        prev_pna: number;
+        total_pca: number;
+        prev_pca: number;
         policies_by_product: Record<string, number>;
         prev_policies_by_product: Record<string, number>;
         total_policies: number;
@@ -39,6 +43,9 @@ const props = defineProps<{
         photo: string | null;
         policies_count: number;
         total_volume: number;
+        total_commission: number;
+        bonus_names: string[];
+        bonus_details: Array<{ name: string; amount: number; progress_label: string }>;
         sparkline: number[];
     }>;
     top_promoters?: Array<{
@@ -48,6 +55,8 @@ const props = defineProps<{
         team_volume: number;
         bonuses_secured: number;
         bonuses_total: number;
+        bonus_names: string[];
+        bonus_details: Array<{ name: string; amount: number; progress_label: string }>;
     }>;
     trends?: Array<{ date: string; count: number; label: string }>;
 }>();
@@ -94,18 +103,13 @@ const formatNumber = (v: number) =>
         <div class="p-4 sm:p-6 lg:p-8 max-w-full space-y-6">
 
             <!-- ========== ENCABEZADO + FILTROS ========== -->
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div class="flex items-center space-x-3">
-                    <div class="p-2.5 bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl shadow-md shadow-gray-900/20">
-                        <LayoutDashboard class="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-                        <p class="text-xs text-gray-400 mt-0.5">Resumen de operaciones y rendimiento</p>
-                    </div>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+                    <p class="text-sm text-gray-400 mt-0.5">Resumen general de la operación</p>
                 </div>
 
-                <div class="flex items-center space-x-1 bg-gray-100/80 backdrop-blur-md rounded-2xl p-1 shadow-inner">
+                <div class="flex items-center p-0.5 bg-gray-100/60 border border-gray-200/50 rounded-xl">
                     <button
                         v-for="f in [
                             { key: 'today', label: 'Hoy' },
@@ -115,14 +119,14 @@ const formatNumber = (v: number) =>
                         ]"
                         :key="f.key"
                         @click="setFilter(f.key)"
-                        class="px-4 py-2 text-xs font-semibold rounded-xl transition-all duration-300 ease-out"
-                       :class="activeFilter === f.key ? 'bg-white text-gray-900 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]' : 'text-gray-500 hover:text-gray-800'"
+                        class="px-3.5 py-1.5 text-[13px] font-medium rounded-lg transition-all duration-200 ease-out"
+                       :class="activeFilter === f.key ? 'bg-white text-gray-900 shadow-sm border border-gray-200/40' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50/50'"
                     >{{ f.label }}</button>
                 </div>
             </div>
 
-            <div v-if="showCustomRange" class="flex items-center space-x-3 bg-white/80 backdrop-blur-xl rounded-2xl border border-white/50 p-3 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-                <span class="text-sm text-gray-500 font-medium">Rango personalizado:</span>
+            <div v-if="showCustomRange" class="flex items-center space-x-3 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                <span class="text-sm text-gray-500 font-medium">Rango:</span>
                 <el-date-picker
                     v-model="customRange"
                     type="daterange"
@@ -131,7 +135,7 @@ const formatNumber = (v: number) =>
                     end-placeholder="Fin"
                     format="DD/MM/YYYY"
                     value-format="YYYY-MM-DD"
-                    class="max-w-xs"
+                    class="max-w-xs !border-gray-200 !rounded-lg"
                     @change="onCustomRangeChange"
                 />
             </div>
@@ -144,21 +148,27 @@ const formatNumber = (v: number) =>
                     :value="formatCurrency(kpis?.net_income || 0)"
                     :prev-value="formatCurrency(kpis?.prev_net_income || 0)"
                     :icon="DollarSign"
+                    icon-bg-class="bg-emerald-50"
+                    icon-color-class="text-emerald-600"
                     :growth="kpis?.income_growth"
-                    color="bg-green-50"
+                    :detail="[
+                        { label: 'PNA (Prima Pagada)', current: formatCurrency(kpis?.total_pna || 0) },
+                        { label: 'PCA (Prima Computable)', current: formatCurrency(kpis?.total_pca || 0) },
+                    ]"
                 />
                 <!-- Volumen de Pólizas -->
                 <GlobalKpi
-                    label="Volumen de Pólizas"
+                    label="Vol. de Pólizas"
                     :value="formatNumber(kpis?.total_policies || 0)"
                     :prev-value="formatNumber(kpis?.prev_total_policies || 0)"
                     :icon="FileText"
+                    icon-bg-class="bg-blue-50"
+                    icon-color-class="text-blue-600"
                     :growth="kpis?.policies_growth"
-                    color="bg-blue-50"
                     :detail="[
-                        { label: 'METLIFE', current: kpis?.policies_by_product?.['1'] || 0, prev: kpis?.prev_policies_by_product?.['1'] || 0 },
-                        { label: 'PERFECTLIFE', current: kpis?.policies_by_product?.['2'] || 0, prev: kpis?.prev_policies_by_product?.['2'] || 0 },
-                        { label: 'PRIMORDIAL', current: kpis?.policies_by_product?.['3'] || 0, prev: kpis?.prev_policies_by_product?.['3'] || 0 },
+                        { label: 'METLIFE', current: kpis?.policies_by_product?.METLIFE || 0 },
+                        { label: 'PERFECTLIFE', current: kpis?.policies_by_product?.PERFECTLIFE || 0 },
+                        { label: 'PRIMORDIAL', current: kpis?.policies_by_product?.PRIMORDIAL || 0 },
                     ]"
                 />
                 <!-- Bonos Proyectados -->
@@ -167,8 +177,9 @@ const formatNumber = (v: number) =>
                     :value="formatCurrency(kpis?.projected_bonuses || 0)"
                     :prev-value="formatCurrency(kpis?.prev_projected_bonuses || 0)"
                     :icon="Award"
+                    icon-bg-class="bg-amber-50"
+                    icon-color-class="text-amber-600"
                     :growth="kpis?.bonuses_growth"
-                    color="bg-amber-50"
                     :detail="[
                         { label: 'Agentes', current: formatCurrency(kpis?.projected_agent_bonuses || 0) },
                         { label: 'Promotores', current: formatCurrency(kpis?.projected_promoter_bonuses || 0) },
@@ -177,9 +188,11 @@ const formatNumber = (v: number) =>
                 <!-- Fuerza de Ventas -->
                 <GlobalKpi
                     label="Fuerza de Ventas"
-                    :value="`${kpis?.active_promoters || 0} P · ${kpis?.active_agents || 0} A`"
+                    :value="formatNumber((kpis?.active_promoters || 0) + (kpis?.active_agents || 0))"
                     :icon="Users"
-                    color="bg-indigo-50"
+                    icon-bg-class="bg-indigo-50"
+                    icon-color-class="text-indigo-600"
+                    subtitle="Personal activo"
                     :detail="[
                         { label: 'Promotores activos', current: kpis?.active_promoters || 0 },
                         { label: 'Agentes activos', current: kpis?.active_agents || 0 },
