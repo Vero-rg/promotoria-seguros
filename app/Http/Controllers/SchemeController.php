@@ -175,8 +175,8 @@ class SchemeController extends Controller
         }
 
         return $scheme->type === 'bonus'
-            ? redirect()->route('esquemas.bonos') 
-            : redirect()->route('esquemas.index');
+            ? redirect()->route('esquemas.bonos')->with('success', 'Bono creado correctamente.')
+            : redirect()->route('esquemas.index')->with('success', 'Comisión creada correctamente.');
     }
 
     public function show(Scheme $scheme)

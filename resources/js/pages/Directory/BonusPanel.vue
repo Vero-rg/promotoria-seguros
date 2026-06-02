@@ -101,10 +101,10 @@ const isLockedByDependency = (bonus, index) => {
                         </div>
                         <!-- Barra de progreso -->
                         <div class="w-full h-2 rounded-full overflow-hidden"
-                            :class="cond.target > 0 ? 'bg-[#f5f0eb]' : 'bg-green-100'">
+                            :class="cond.target > 0 ? 'bg-[#f5f0eb]' : 'bg-gray-200'">
                             <div class="h-full rounded-full transition-all duration-700"
-                                :class="cond.met ? 'bg-[#4a7c59]' : (cond.target > 0 ? 'bg-[#d9775b]' : 'bg-[#4a7c59]')"
-                                :style="{ width: `${cond.target > 0 ? Math.min((cond.current / cond.target) * 100, 100) : 100}%` }">
+                                :class="cond.met ? 'bg-[#4a7c59]' : (cond.target > 0 ? 'bg-[#d9775b]' : 'bg-gray-300')"
+                                :style="{ width: cond.met ? '100%' : (cond.target > 0 ? `${Math.min((cond.current / cond.target) * 100, 100)}%` : '0%') }">
                             </div>
                         </div>
                     </div>
@@ -115,12 +115,12 @@ const isLockedByDependency = (bonus, index) => {
                     <div class="relative">
                         <div class="w-full h-5 bg-[#f5f0eb] rounded-full overflow-hidden">
                             <div class="h-full rounded-full transition-all duration-700 ease-out"
-                                :class="bonus.unlocked ? 'bg-[#4a7c59]' : 'bg-[#6a9e7a]'"
-                                :style="{ width: `${bonus.target > 0 ? Math.min((bonus.progress / bonus.target) * 100, 100) : 0}%` }">
+                                :class="bonus.unlocked ? 'bg-[#4a7c59]' : 'bg-gray-300'"
+                                :style="{ width: bonus.unlocked ? '100%' : (bonus.target > 0 ? `${Math.min((bonus.progress / bonus.target) * 100, 100)}%` : '0%') }">
                             </div>
                         </div>
                         <div class="absolute inset-0 flex items-center justify-center">
-                            <span class="text-xs font-bold text-white drop-shadow-sm">
+                            <span class="text-xs font-bold drop-shadow-sm" :class="bonus.unlocked ? 'text-white' : 'text-gray-600'">
                                 {{ bonus.target > 0 ? Math.round((bonus.progress / bonus.target) * 100) : 0 }}%
                             </span>
                         </div>
@@ -180,10 +180,10 @@ const isLockedByDependency = (bonus, index) => {
                             </span>
                         </div>
                         <div class="w-full h-2 rounded-full overflow-hidden"
-                            :class="cond.target > 0 ? 'bg-[#f5f0eb]' : 'bg-green-100'">
+                            :class="cond.target > 0 ? 'bg-[#f5f0eb]' : 'bg-gray-200'">
                             <div class="h-full rounded-full transition-all duration-700"
-                                :class="cond.met ? 'bg-[#4a7c59]' : (cond.target > 0 ? 'bg-[#d9775b]' : 'bg-[#4a7c59]')"
-                                :style="{ width: `${cond.target > 0 ? Math.min((cond.current / cond.target) * 100, 100) : 100}%` }">
+                                :class="cond.met ? 'bg-[#4a7c59]' : (cond.target > 0 ? 'bg-[#d9775b]' : 'bg-gray-300')"
+                                :style="{ width: cond.met ? '100%' : (cond.target > 0 ? `${Math.min((cond.current / cond.target) * 100, 100)}%` : '0%') }">
                             </div>
                         </div>
                     </div>

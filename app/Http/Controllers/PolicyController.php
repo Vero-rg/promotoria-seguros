@@ -58,7 +58,7 @@ class PolicyController extends Controller
     public function create()
     {
         return Inertia::render('Policies/Create', [
-            'agents' => Agent::orderBy('name')->get(),
+            'agents' => Agent::where('is_active', true)->orderBy('name')->get(),
             'productCommissionMap' => $this->getProductCommissionMap(),
         ]);
     }
@@ -133,7 +133,7 @@ class PolicyController extends Controller
     {
         return Inertia::render('Policies/Edit', [
             'policy' => $policy,
-            'agents' => Agent::orderBy('name')->get(),
+            'agents' => Agent::where('is_active', true)->orderBy('name')->get(),
             'productCommissionMap' => $this->getProductCommissionMap(),
         ]);
     }

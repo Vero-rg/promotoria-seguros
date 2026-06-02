@@ -15,6 +15,7 @@ class PromoterController extends Controller
         $search = $request->query('search');
         $type = $request->query('type');
         $date = $request->query('date');
+        $status = $request->query('status');
 
         $promoters = collect();
         $agents = collect();
@@ -47,6 +48,9 @@ class PromoterController extends Controller
                 ->when($date, function ($query, $date) {
                     $query->whereDate('created_at', $date);
                 })
+                ->when($status !== null && $status !== '', function ($query) use ($status) {
+                    $query->where('is_active', $status === 'active');
+                })
                 ->latest()
                 ->get()
                 ->map(function ($item) {
@@ -73,6 +77,9 @@ class PromoterController extends Controller
                 ->when($date, function ($query, $date) {
                     $query->whereDate('created_at', $date);
                 })
+                ->when($status !== null && $status !== '', function ($query) use ($status) {
+                    $query->where('is_active', $status === 'active');
+                })
                 ->latest()
                 ->get()
                 ->map(function ($item) {
@@ -92,6 +99,7 @@ class PromoterController extends Controller
                 'search' => $search,
                 'type' => $type,
                 'date' => $date,
+                'status' => $status,
             ]
         ]);
     }

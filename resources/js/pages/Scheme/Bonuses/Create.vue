@@ -23,7 +23,7 @@ const templates = {
         requires_product: ['Vida'],
         min_product_count: 0,
         requires_mix: false,
-        dependency_scheme_id: 'produccion_1er_ano_vida',
+        dependency_scheme_id: 'agent_first_year_production',
         min_irp: 0,
         min_collection_efficiency: 0,
         quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
@@ -61,15 +61,15 @@ const templates = {
         baseCondition: { min_pca: 0 },
         pna_equivalences: [],
         tiers: [
-            { conditions: { min_pca: 785000 }, agent_percentage: 36, agent_automatic_percentage: 44, promoter_percentage: 0 },
-            { conditions: { min_pca: 650000 }, agent_percentage: 32, agent_automatic_percentage: 40, promoter_percentage: 0 },
-            { conditions: { min_pca: 525000 }, agent_percentage: 28, agent_automatic_percentage: 34, promoter_percentage: 0 },
-            { conditions: { min_pca: 460000 }, agent_percentage: 26, agent_automatic_percentage: 32, promoter_percentage: 0 },
-            { conditions: { min_pca: 395000 }, agent_percentage: 24, agent_automatic_percentage: 30, promoter_percentage: 0 },
-            { conditions: { min_pca: 330000 }, agent_percentage: 21, agent_automatic_percentage: 27, promoter_percentage: 0 },
-            { conditions: { min_pca: 260000 }, agent_percentage: 19, agent_automatic_percentage: 25, promoter_percentage: 0 },
-            { conditions: { min_pca: 200000 }, agent_percentage: 14, agent_automatic_percentage: 20, promoter_percentage: 0 },
-            { conditions: { min_pca: 130000 }, agent_percentage: 10, agent_automatic_percentage: 16, promoter_percentage: 0 },
+            { conditions: { min_pca: 130000 }, agent_percentage: 10, agent_automatic_percentage: 16 },
+            { conditions: { min_pca: 200000 }, agent_percentage: 14, agent_automatic_percentage: 20 },
+            { conditions: { min_pca: 260000 }, agent_percentage: 19, agent_automatic_percentage: 25 },
+            { conditions: { min_pca: 330000 }, agent_percentage: 21, agent_automatic_percentage: 27 },
+            { conditions: { min_pca: 395000 }, agent_percentage: 24, agent_automatic_percentage: 30 },
+            { conditions: { min_pca: 460000 }, agent_percentage: 26, agent_automatic_percentage: 32 },
+            { conditions: { min_pca: 525000 }, agent_percentage: 28, agent_automatic_percentage: 34 },
+            { conditions: { min_pca: 650000 }, agent_percentage: 32, agent_automatic_percentage: 40 },
+            { conditions: { min_pca: 785000 }, agent_percentage: 36, agent_automatic_percentage: 44 },           
         ]
     },
     first_year_production: {
@@ -90,7 +90,13 @@ const templates = {
         component: markRaw(TierFirstYearProduction),
         baseCondition: { min_pp: 0, min_irp: 0, max_irp: undefined },
         pna_equivalences: [],
-        tiers: [{ conditions: { min_pp: 555000, min_irp: 91, max_irp: 93.99 }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 18 }]
+        tiers: [
+            { conditions: { min_pp: 255000, min_irp: 91 }, promoter_percentage: 10 }, 
+            { conditions: { min_pp: 345000, min_irp: 91 }, promoter_percentage: 12 },
+            { conditions: { min_pp: 420000, min_irp: 91 }, promoter_percentage: 14 },
+            { conditions: { min_pp: 495000, min_irp: 91 }, promoter_percentage: 16 },
+            { conditions: { min_pp: 555000, min_irp: 91 }, promoter_percentage: 18 },   
+        ]
     },
     additional_agents: {
         name: 'Adicional por Agentes con Compensación',
@@ -103,17 +109,24 @@ const templates = {
         requires_product: [],
         min_product_count: 0,
         requires_mix: false,
-        dependency_scheme_id: 'produccion_1er_ano_vida',
+        dependency_scheme_id: 'agent_first_year_production',
         min_irp: 0,
         min_collection_efficiency: 0,
         quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
         component: markRaw(TierAdditionalAgents),
         baseCondition: { min_agents: 0, max_agents: undefined },
         pna_equivalences: [],
-        tiers: [{ conditions: { min_agents: 1, max_agents: 1 }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 2 }]
+        tiers: [
+            { conditions: { min_agents: 1, max_agents: 1 }, promoter_percentage: 2 },
+            { conditions: { min_agents: 2, max_agents: 2 }, promoter_percentage: 3 },
+            { conditions: { min_agents: 3, max_agents: 3 }, promoter_percentage: 4 },
+            { conditions: { min_agents: 4, max_agents: 4 }, promoter_percentage: 5 }, 
+            { conditions: { min_agents: 5, max_agents: 5 }, promoter_percentage: 7 }
+        
+        ]
     },
     connection: {
-        name: 'Conexión',
+        name: 'Conexión mensual',
         target: 'promoter',
         metric_base: 'PCA',
         frequency: 'mensual',
@@ -126,11 +139,18 @@ const templates = {
         dependency_scheme_id: null,
         min_irp: 0,
         min_collection_efficiency: 0,
-        quarterly_recruits: { q1: 1, q2: 2, q3: 3, q4: 4 },
+        quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
         component: markRaw(TierConnection),
         baseCondition: { min_recruits: 0, max_recruits: undefined, min_pca: 0 },
         pna_equivalences: [],
-        tiers: [{ conditions: { min_recruits: 1, max_recruits: 2, min_pca: 125000 }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 9 }]
+        tiers: [
+            { conditions: { min_recruits: 1, max_recruits: 2, min_pca: 125000 }, promoter_percentage: 9 },
+            { conditions: { min_recruits: 3, max_recruits: 4, min_pca: 125000 }, promoter_percentage: 11 },
+            { conditions: { min_recruits: 5, max_recruits: undefined, min_pca: 125000 }, promoter_percentage: 12 },
+            { conditions: { min_recruits: 1, max_recruits: 2, min_pca: 250000 }, promoter_percentage: 11 },
+            { conditions: { min_recruits: 2, max_recruits: 3, min_pca: 250000 }, promoter_percentage: 13 },
+            { conditions: { min_recruits: 5, max_recruits: undefined, min_pca: 250000 }, promoter_percentage: 14 },
+        ]
     },
     monthly_development: {
         name: 'Desarrollo Mensual',
@@ -150,7 +170,14 @@ const templates = {
         component: markRaw(TierMonthlyDevelopment),
         baseCondition: { min_pca: 0, min_month: 1, max_month: 12 },
         pna_equivalences: [],
-        tiers: [{ conditions: { min_pca: 125000, min_month: 1, max_month: 12 }, agent_percentage: 0, agent_automatic_percentage: 0, promoter_percentage: 9 }]
+        tiers: [
+            { conditions: { min_pca: 125000, min_month: 1, max_month: 12 }, promoter_percentage: 9 },
+            { conditions: { min_pca: 400000, min_month: 1, max_month: 12 }, promoter_percentage: 15 },
+            { conditions: { min_pca: 600000, min_month: 1, max_month: 12 }, promoter_percentage: 19 },
+            { conditions: { min_pca: 800000, min_month: 1, max_month: 12 }, promoter_percentage: 24 },
+            { conditions: { min_pca: 1250000, min_month: 1, max_month: 12 }, promoter_percentage: 28 },
+            { conditions: { min_pca: 1750000, min_month: 1, max_month: 12 }, promoter_percentage: 31 },        
+        ]
     }
 };
 
@@ -198,7 +225,7 @@ watch(selectedTemplate, (newVal) => {
     form.requires_product = [...tpl.requires_product];
     form.min_product_count = tpl.min_product_count;
     form.requires_mix = tpl.requires_mix;
-    form.dependency_scheme_id = tpl.dependency_scheme_id;
+    form.dependency_scheme_id = tpl.dependency_scheme_id || '';
     form.min_irp = tpl.min_irp;
     form.min_collection_efficiency = tpl.min_collection_efficiency;
     form.quarterly_recruits = { ...tpl.quarterly_recruits };
@@ -318,11 +345,19 @@ const submit = () => {
                             <div v-if="form.requires_anticipos" class="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-md grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-blue-900 mb-1">Meta Mínima Mes 1 para Anticipo ($)</label>
-                                    <el-input-number v-model="form.anticipos_config.month_1_min" :min="0" :step="0.01" :precision="2" style="width: 100%;" />
+                                    <el-input
+                                    v-model="form.anticipos_config.month_1_min" :min="0" :step="0.01" :precision="2" style="width: 100%;"
+                                    :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+                                    :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"
+                                    />
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-blue-900 mb-1">Meta Acumulada Mín. Mes 2 para Anticipo ($)</label>
-                                    <el-input-number v-model="form.anticipos_config.month_2_min" :min="0" :step="0.01" :precision="2" style="width: 100%;" />
+                                    <el-input
+                                    v-model="form.anticipos_config.month_2_min" :min="0" :step="0.01" :precision="2" style="width: 100%;" 
+                                    :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+                                    :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -344,22 +379,16 @@ const submit = () => {
                                             <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad Mínima Requerida</label>
                                             <el-input-number v-model="form.min_product_count" :min="0" style="width: 100%;" />
                                         </div>
-                                        <div class="flex-1 mt-6">
-                                            <el-checkbox v-model="form.requires_mix" label="Exigir Mix de Ramos" />
-                                        </div>
                                     </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Dependencia de otro Bono</label>
-                                        <el-select v-model="form.dependency_scheme_id" clearable placeholder="Debe ganar primero..." style="width: 100%;">
-                                            <el-option label="Producción 1er Año Vida" value="produccion_1er_ano_vida" />
-                                            <!-- Aquí irían los bonos desde BD -->
-                                        </el-select>
-                                    </div>
+                                    
                                 </div>
                                 <div class="space-y-4 border-l pl-6 border-gray-100">
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Índice de Retención Mínimo (IRP %)</label>
-                                        <el-input-number v-model="form.min_irp" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" />
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Dependencia de otro Bono</label>
+                                        <el-select v-model="form.dependency_scheme_id" clearable placeholder="Debe ganar primero..." style="width: 100%;">
+                                            <el-option label="Producción 1er Año Vida" value="agent_first_year_production" />
+                                            <!-- Aquí irían los bonos desde BD -->
+                                        </el-select>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Eficiencia de Cobro Mínima (%)</label>
@@ -425,11 +454,19 @@ const submit = () => {
                                 <div v-for="(eq, index) in form.pna_equivalences" :key="index" class="flex items-center gap-4 bg-gray-50 p-4 border rounded-md">
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Mínimo PNA ($)</label>
-                                        <el-input-number v-model="eq.min_pna" :min="0" :step="0.01" :precision="2" style="width: 100%;" />
+                                        <el-input
+                                        v-model="eq.min_pna" :min="0" :step="0.01" :precision="2" style="width: 100%;"
+                                        :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+                                        :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"
+                                        />
                                     </div>
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Máximo PNA ($)</label>
-                                        <el-input-number v-model="eq.max_pna" :min="0" :step="0.01" :precision="2" style="width: 100%;" placeholder="Sin límite" />
+                                        <el-input
+                                        v-model="eq.max_pna" :min="0" :step="0.01" :precision="2" style="width: 100%;" placeholder="Sin límite" 
+                                        :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+                                        :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"
+                                        />
                                     </div>
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Valor en Pólizas</label>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { Percent, Award, Plus, ArrowRight, Edit, Trash2 } from 'lucide-vue-next';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { onMounted } from 'vue';
 
 // Recibimos los esquemas (que desde el controlador serán solo los bonos)
 defineProps<{
@@ -16,6 +17,16 @@ defineProps<{
         versions: Array<{ id: number; version_name: string; starts_at: string; ends_at: string | null }>;
     }>;
 }>();
+
+onMounted(() => {
+    const flash = (usePage().props.flash as any) || {};
+    if (flash.success) {
+        ElMessage({ type: 'success', message: flash.success });
+    }
+    if (flash.error) {
+        ElMessage({ type: 'error', message: flash.error });
+    }
+});
 
 const handleDelete = (schemeId: number, schemeName: string) => {
     ElMessageBox.confirm(
@@ -119,6 +130,14 @@ const handleDelete = (schemeId: number, schemeName: string) => {
                                 <div class="flex justify-between text-sm" v-if="scheme.versions?.length">
                                     <span class="text-gray-500">Versión:</span>
                                     <span class="font-medium text-gray-900">{{ scheme.versions[scheme.versions.length - 1]?.version_name || '—' }}</span>
+                                </div>
+                                <div class="flex justify-between text-sm" v-if="scheme.versions?.length">
+                                    <span class="text-gray-500">Vigencia:</span>
+                                    <span class="font-medium text-gray-900 text-xs text-right">
+                                        {{ scheme.versions[scheme.versions.length - 1]?.starts_at }}
+                                        <template v-if="scheme.versions[scheme.versions.length - 1]?.ends_at"> → {{ scheme.versions[scheme.versions.length - 1]?.ends_at }}</template>
+                                        <template v-else> → Indefinido</template>
+                                    </span>
                                 </div>
                             </div>
                         </div>

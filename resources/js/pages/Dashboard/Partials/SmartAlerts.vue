@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { Clock, Target, Users, Bell, CheckCheck, X, Award, AlertTriangle, DollarSign, Package, TrendingUp } from 'lucide-vue-next';
+import { ElMessageBox } from 'element-plus';
+
+const STORAGE_KEY = 'dashboard_dismissed_alerts';
 
 const props = defineProps<{
     alerts: Array<{
@@ -10,7 +13,41 @@ const props = defineProps<{
     }>;
 }>();
 
-const dismissed = ref<Set<number>>(new Set());
+/** Genera una clave única para cada alerta basada en su mensaje */
+const alertKey = (alert: { message: string }, idx: number): string => {
+    // Hash simple del mensaje + índice para evitar colisiones
+    let hash = 0;
+    const str = alert.message + '_' + idx;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return 'alert_' + Math.abs(hash);
+};
+
+// Cargar alertas eliminadas desde localStorage
+const loadDismissed = (): Set<string> => {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+            return new Set(JSON.parse(raw));
+        }
+    } catch {}
+    return new Set();
+};
+
+const saveDismissed = (keys: Set<string>) => {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([...keys]));
+    } catch {}
+};
+
+const dismissedKeys = ref<Set<string>>(loadDismissed());
+
+// Sincronizar al inicio por si las props cambiaron
+onMounted(() => {
+    dismissedKeys.value = loadDismissed();
+});
 
 const iconMap: Record<string, any> = {
     clock: Clock,
@@ -37,17 +74,35 @@ const typeColors: Record<string, string> = {
 };
 
 const activeAlerts = computed(() =>
-    props.alerts.filter((_, idx) => !dismissed.value.has(idx))
+    props.alerts.filter((alert, idx) => !dismissedKeys.value.has(alertKey(alert, idx)))
 );
 
 const hasActiveAlerts = computed(() => activeAlerts.value.length > 0);
 
 const dismissOne = (idx: number) => {
-    dismissed.value = new Set([...dismissed.value, idx]);
+    ElMessageBox.confirm(
+        '¿Deseas eliminar esta alerta definitivamente?',
+        'Confirmar',
+        { confirmButtonText: 'Sí, eliminar', cancelButtonText: 'Cancelar', type: 'warning' }
+    ).then(() => {
+        const key = alertKey(props.alerts[idx], idx);
+        const updated = new Set([...dismissedKeys.value, key]);
+        dismissedKeys.value = updated;
+        saveDismissed(updated);
+    }).catch(() => {});
 };
 
 const dismissAll = () => {
-    dismissed.value = new Set(props.alerts.map((_, i) => i));
+    if (!hasActiveAlerts.value) return;
+    ElMessageBox.confirm(
+        `¿Deseas eliminar las ${activeAlerts.value.length} alertas activas? No volverán a aparecer.`,
+        'Confirmar eliminación',
+        { confirmButtonText: 'Sí, eliminar todas', cancelButtonText: 'Cancelar', type: 'warning' }
+    ).then(() => {
+        const allKeys = new Set(props.alerts.map((a, i) => alertKey(a, i)));
+        dismissedKeys.value = allKeys;
+        saveDismissed(allKeys);
+    }).catch(() => {});
 };
 </script>
 
@@ -65,7 +120,7 @@ const dismissAll = () => {
                 </div>
                 <div>
                     <h3 class="text-sm font-semibold" :class="hasActiveAlerts ? 'text-amber-800' : 'text-gray-500'">
-                        {{ hasActiveAlerts ? `${activeAlerts.length} Oportunidad(es) Detectada(s)` : 'Sin alertas activas' }}
+                        {{ hasActiveAlerts ? `${activeAlerts.length} ALERTAS` : 'Sin alertas activas' }}
                     </h3>
                     <p v-if="hasActiveAlerts" class="text-xs text-amber-600/70 mt-0.5">Impulsa a tu equipo antes del cierre</p>
                 </div>
@@ -85,7 +140,7 @@ const dismissAll = () => {
             <div
                 v-for="(alert, idx) in alerts"
                 :key="idx"
-                v-show="!dismissed.has(idx)"
+                v-show="!dismissedKeys.has(alertKey(alert, idx))"
                 class="flex items-start space-x-3 bg-white rounded-xl px-4 py-3 border border-gray-100 shadow-sm group hover:shadow-md transition-shadow border-l-4"
                 :class="typeColors[alert.type] || 'border-l-gray-300'"
             >

@@ -13,6 +13,10 @@ defineProps<{ conditions: Record<string, any> }>();
     </div>
     <div class="flex-1 min-w-[140px]">
         <label class="block text-sm font-medium text-gray-700 mb-1">PCA Acumulada ($)</label>
-        <el-input-number v-model="conditions.min_pca" :min="0" :step="1000" style="width: 100%;" required />
+        <el-input 
+        v-model="conditions.min_pca" :min="0" :step="1000" style="width: 100%;" required 
+         :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+         :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"
+        />
     </div>
 </template>

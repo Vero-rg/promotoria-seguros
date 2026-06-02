@@ -202,11 +202,19 @@ const submit = () => {
                             <div v-if="form.requires_anticipos" class="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-md grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-blue-900 mb-1">Meta Mínima Mes 1 para Anticipo ($)</label>
-                                    <el-input-number v-model="form.anticipos_config.month_1_min" :min="0" :step="1000" :precision="2" style="width: 100%;" />
+                                    <el-input 
+                                    v-model="form.anticipos_config.month_1_min" :min="0" :step="1000" :precision="2" style="width: 100%;" 
+                                    :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+                                    :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"
+                                    />
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-blue-900 mb-1">Meta Acumulada Mín. Mes 2 para Anticipo ($)</label>
-                                    <el-input-number v-model="form.anticipos_config.month_2_min" :min="0" :step="1000" :precision="2" style="width: 100%;" />
+                                    <el-input
+                                    v-model="form.anticipos_config.month_2_min" :min="0" :step="1000" :precision="2" style="width: 100%;" 
+                                    :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+                                    :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -227,15 +235,11 @@ const submit = () => {
                                         <div class="flex-1">
                                             <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad Mínima Requerida</label>
                                             <el-input-number v-model="form.min_product_count" :min="0" style="width: 100%;" />
-                                        </div>
-                                        <div class="flex-1 mt-6">
-                                            <el-checkbox v-model="form.requires_mix" label="Exigir Mix de Ramos" />
-                                        </div>
-                                    </div>
+                                        </div>                                    </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Dependencia de otro Bono</label>
                                         <el-select v-model="form.dependency_scheme_id" clearable placeholder="Debe ganar primero..." style="width: 100%;">
-                                            <el-option label="Producción 1er Año Vida" value="produccion_1er_ano_vida" />
+                                            <el-option label="Producción 1er Año Vida" value="agent_first_year_production" />
                                         </el-select>
                                     </div>
                                 </div>
@@ -314,11 +318,18 @@ const submit = () => {
                                 <div v-for="(eq, index) in form.pna_equivalences" :key="index" class="flex items-center gap-4 bg-gray-50 p-4 border rounded-md">
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Mínimo PNA ($)</label>
-                                        <el-input-number v-model="eq.min_pna" :min="0" :step="1000" :precision="2" style="width: 100%;" />
+                                        <el-input 
+                                        v-model="eq.min_pna" :min="0" :step="1000" :precision="2" style="width: 100%;"
+                                        :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+                                        :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"s
+                                        />
                                     </div>
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Máximo PNA ($)</label>
-                                        <el-input-number v-model="eq.max_pna" :min="0" :step="1000" :precision="2" style="width: 100%;" placeholder="Sin límite" />
+                                        <el-input
+                                        v-model="eq.max_pna" :min="0" :step="1000" :precision="2" style="width: 100%;" placeholder="Sin límite" 
+                                        :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
+                                        :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"/>
                                     </div>
                                     <div class="flex-1">
                                         <label class="block text-xs text-gray-500 mb-1">Valor en Pólizas</label>

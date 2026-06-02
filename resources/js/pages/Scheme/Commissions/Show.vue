@@ -55,7 +55,6 @@ const breadcrumbs = [
                     <div>
                         <h2 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-800 to-slate-500 flex items-center gap-3">
                             {{ scheme.name }}
-                            <span v-if="scheme.code" class="text-lg font-mono bg-slate-200 text-slate-600 px-3 py-1 rounded-lg">{{ scheme.code }}</span>
                         </h2>
                     </div>
                     <div class="flex items-center gap-3">
@@ -78,15 +77,11 @@ const breadcrumbs = [
                             Resumen de la Comisión
                         </h3>
                         
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <!-- Celdas estilo iOS -->
                             <div class="p-5 rounded-2xl bg-slate-50/80 border border-slate-100 hover:bg-slate-50 transition-colors">
                                 <span class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Nombre Completo</span>
                                 <span class="block text-base font-medium text-slate-800">{{ scheme.name }}</span>
-                            </div>
-                            <div class="p-5 rounded-2xl bg-slate-50/80 border border-slate-100 hover:bg-slate-50 transition-colors">
-                                <span class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Código Interno</span>
-                                <span class="block text-base font-medium text-slate-800">{{ scheme.code || 'N/A' }}</span>
                             </div>
                             <div class="p-5 rounded-2xl bg-slate-50/80 border border-slate-100 hover:bg-slate-50 transition-colors">
                                 <span class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Aplicable A</span>

@@ -14,12 +14,14 @@ const props = defineProps({
 const search = ref(props.filters?.search || '');
 const type = ref(props.filters?.type || '');
 const date = ref(props.filters?.date || '');
+const status = ref(props.filters?.status || '');
 
 const fetchDirectory = () => {
     router.get(route('directorio'), {
         search: search.value,
         type: type.value,
-        date: date.value
+        date: date.value,
+        status: status.value
     }, {
         preserveState: true,
         preserveScroll: true,
@@ -28,7 +30,7 @@ const fetchDirectory = () => {
 };
 
 let timeout;
-watch([search, type, date], () => {
+watch([search, type, date, status], () => {
     clearTimeout(timeout);
     timeout = setTimeout(fetchDirectory, 300);
 });
@@ -93,6 +95,12 @@ const handleDelete = (row) => {
                         </el-select>
 
                         <el-date-picker v-model="date" type="date" placeholder="Fecha de creación" format="DD/MM/YYYY" value-format="YYYY-MM-DD" clearable class="w-full sm:max-w-[180px]" />
+
+                        <el-select v-model="status" placeholder="Estatus" clearable class="w-full sm:max-w-[130px]">
+                            <el-option label="Todos" value="" />
+                            <el-option label="Activo" value="active" />
+                            <el-option label="Inactivo" value="inactive" />
+                        </el-select>
                     </div>
                 </div>
 
@@ -153,6 +161,13 @@ const handleDelete = (row) => {
                                 <Users class="w-4 h-4 mr-1 text-gray-400" />
                                 Promotor: <span class="font-medium ml-1">{{ row.promoter ? row.promoter.name : 'Sin asignar' }}</span>
                             </div>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Estatus" width="110">
+                        <template #default="{ row }">
+                            <el-tag :type="row.is_active ? 'success' : 'danger'" effect="plain">
+                                {{ row.is_active ? 'Activo' : 'Inactivo' }}
+                            </el-tag>
                         </template>
                     </el-table-column>
                     <el-table-column label="Creación" width="150">
