@@ -57,6 +57,7 @@ const props = defineProps<{
         bonuses_total: number;
         bonus_names: string[];
         bonus_details: Array<{ name: string; amount: number; progress_label: string }>;
+        total_commission: number;
     }>;
     trends?: Array<{ date: string; count: number; label: string }>;
 }>();

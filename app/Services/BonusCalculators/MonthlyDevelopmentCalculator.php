@@ -76,7 +76,20 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
 
         // ── 3. Validar Reglas Globales ──────────────────────────────────
 
-        // 3a. Eficiencia al cobro
+        // 3a. Cuota trimestral de reclutamiento (cálculo anticipado)
+        $quarterlyQuota = $scheme->quarterly_recruits ?? [];
+        $currentQuarter = null;
+        $requiredRecruits = null;
+        $actualRecruits = null;
+        if (!empty($quarterlyQuota)) {
+            $currentQuarter = $this->getCurrentQuarter($periodEnd);
+            $requiredRecruits = $quarterlyQuota[$currentQuarter] ?? 0;
+            if ($requiredRecruits > 0) {
+                $actualRecruits = $this->countYearToDateRecruits($user, $periodEnd);
+            }
+        }
+
+        // 3b. Eficiencia al cobro
         $minEfficiency = (float) ($scheme->min_collection_efficiency ?? 0);
         if ($minEfficiency > 0) {
             $actualEfficiency = $this->calculateCollectionEfficiency($user, $periodStart, $periodEnd);
@@ -84,7 +97,9 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                 return $this->notAchieved(
                     reason: "Eficiencia al cobro ({$actualEfficiency}%) por debajo del mínimo requerido ({$minEfficiency}%).",
                     collectionEfficiency: $actualEfficiency,
+                    quarterlyRecruits: $actualRecruits,
                     requiredEfficiency: $minEfficiency,
+                    requiredRecruits: $requiredRecruits,
                     totalAgents: $agents->count(),
                 );
             }
@@ -92,24 +107,16 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
             $actualEfficiency = null;
         }
 
-        // 3b. Cuota trimestral de reclutamiento
-        $quarterlyQuota = $scheme->quarterly_recruits ?? [];
-        if (!empty($quarterlyQuota)) {
-            $currentQuarter = $this->getCurrentQuarter();
-            $requiredRecruits = $quarterlyQuota[$currentQuarter] ?? 0;
-            if ($requiredRecruits > 0) {
-                $actualRecruits = $this->countYearToDateRecruits($user, $currentQuarter);
-                if ($actualRecruits < $requiredRecruits) {
-                    return $this->notAchieved(
-                        reason: "Cuota trimestral Q{$currentQuarter} no cumplida: requiere {$requiredRecruits} reclutas, tiene {$actualRecruits}.",
-                        collectionEfficiency: $actualEfficiency,
-                        quarterlyRecruits: $actualRecruits,
-                        requiredEfficiency: $minEfficiency,
-                        requiredRecruits: $requiredRecruits,
-                        totalAgents: $agents->count(),
-                    );
-                }
-            }
+        // 3c. Validar cuota trimestral de reclutamiento
+        if ($requiredRecruits > 0 && $actualRecruits < $requiredRecruits) {
+            return $this->notAchieved(
+                reason: "Cuota trimestral Q{$currentQuarter} no cumplida: requiere {$requiredRecruits} reclutas, tiene {$actualRecruits}.",
+                collectionEfficiency: $actualEfficiency,
+                quarterlyRecruits: $actualRecruits,
+                requiredEfficiency: $minEfficiency,
+                requiredRecruits: $requiredRecruits,
+                totalAgents: $agents->count(),
+            );
         }
 
         // ── 4. Evaluar cada agente contra los tiers ────────────────────
@@ -122,7 +129,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
 
         foreach ($agents as $agent) {
             $agentPca   = $this->calculateAgentPca($agent, $periodStart, $periodEnd);
-            $tenureMonth = $this->calculateAgentTenureMonth($agent);
+            $tenureMonth = $this->calculateAgentTenureMonth($agent, $periodEnd);
 
             foreach ($tiers as $index => $tier) {
                 $conditions = $tier->conditions ?? [];
@@ -201,6 +208,18 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                     'target'  => 0,
                     'met'     => true,
                 ],
+                [
+                    'label'   => 'Eficiencia al Cobro (%)',
+                    'current' => $actualEfficiency !== null ? round($actualEfficiency, 2) : 0,
+                    'target'  => $minEfficiency,
+                    'met'     => $minEfficiency > 0 ? ($actualEfficiency ?? 0) >= $minEfficiency : true,
+                ],
+                [
+                    'label'   => 'Reclutas Trimestrales',
+                    'current' => $actualRecruits ?? 0,
+                    'target'  => $requiredRecruits ?? 0,
+                    'met'     => $requiredRecruits > 0 ? ($actualRecruits ?? 0) >= $requiredRecruits : true,
+                ],
             ],
             'details'     => [
                 'calculator'             => static::class,
@@ -248,21 +267,29 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
     }
 
     /**
-     * Determina el trimestre actual (1-4) basado en Carbon::now().
+     * Determina el trimestre calendario a partir de la fecha de fin del periodo evaluado.
+     *
+     * @param  Carbon  $periodEnd  Fecha de cierre del periodo evaluado.
+     * @return int  1, 2, 3 o 4.
      */
-    private function getCurrentQuarter(): int
+    private function getCurrentQuarter(Carbon $periodEnd): int
     {
-        return (int) ceil(Carbon::now()->month / 3);
+        return (int) ceil($periodEnd->month / 3);
     }
 
     /**
-     * Cuenta los agentes reclutados desde el 1 de enero del año actual
-     * hasta el final del trimestre dado.
+     * Cuenta los agentes reclutados desde el 1 de enero del año de $periodEnd
+     * hasta el cierre del trimestre correspondiente.
+     *
+     * @param  Promoter  $promoter   Promotor cuyos reclutas se cuentan.
+     * @param  Carbon    $periodEnd  Fecha de cierre del periodo evaluado.
+     * @return int
      */
-    private function countYearToDateRecruits(Promoter $promoter, int $quarter): int
+    private function countYearToDateRecruits(Promoter $promoter, Carbon $periodEnd): int
     {
-        $yearStart = Carbon::now()->startOfYear();
-        $quarterEnd = Carbon::now()->startOfYear()->addMonths($quarter * 3)->endOfMonth();
+        $quarter    = (int) ceil($periodEnd->month / 3);
+        $yearStart  = $periodEnd->copy()->startOfYear();
+        $quarterEnd = $periodEnd->copy()->startOfYear()->addMonths($quarter * 3)->endOfMonth();
 
         return $promoter->agents()
             ->whereBetween('created_at', [$yearStart, $quarterEnd])
@@ -280,17 +307,22 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
     }
 
     /**
-     * Calcula los meses de antigüedad de un agente desde su created_at hasta hoy.
+     * Calcula los meses de antigüedad de un agente desde su created_at
+     * hasta la fecha de cierre del periodo evaluado.
      *
      * Retorna 1 para el primer mes, 2 para el segundo, etc.
+     *
+     * @param  Agent   $agent      Agente a evaluar.
+     * @param  Carbon  $periodEnd  Fecha de cierre del periodo evaluado.
+     * @return int
      */
-    private function calculateAgentTenureMonth(Agent $agent): int
+    private function calculateAgentTenureMonth(Agent $agent, Carbon $periodEnd): int
     {
         if ($agent->created_at === null) {
             return 1;
         }
 
-        return (int) $agent->created_at->diffInMonths(Carbon::now()) + 1;
+        return (int) $agent->created_at->diffInMonths($periodEnd) + 1;
     }
 
     private function resolveActiveVersion(Scheme $scheme, Carbon $start, Carbon $end): ?SchemeVersion

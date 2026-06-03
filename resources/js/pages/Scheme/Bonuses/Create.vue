@@ -109,7 +109,7 @@ const templates = {
         requires_product: [],
         min_product_count: 0,
         requires_mix: false,
-        dependency_scheme_id: 'agent_first_year_production',
+        dependency_scheme_id: 'first_year_production',
         min_irp: 0,
         min_collection_efficiency: 0,
         quarterly_recruits: { q1: 0, q2: 0, q3: 0, q4: 0 },
@@ -148,7 +148,7 @@ const templates = {
             { conditions: { min_recruits: 3, max_recruits: 4, min_pca: 125000 }, promoter_percentage: 11 },
             { conditions: { min_recruits: 5, max_recruits: undefined, min_pca: 125000 }, promoter_percentage: 12 },
             { conditions: { min_recruits: 1, max_recruits: 2, min_pca: 250000 }, promoter_percentage: 11 },
-            { conditions: { min_recruits: 2, max_recruits: 3, min_pca: 250000 }, promoter_percentage: 13 },
+            { conditions: { min_recruits: 3, max_recruits: 4, min_pca: 250000 }, promoter_percentage: 13 },
             { conditions: { min_recruits: 5, max_recruits: undefined, min_pca: 250000 }, promoter_percentage: 14 },
         ]
     },
@@ -182,6 +182,20 @@ const templates = {
 };
 
 const currentTemplate = computed(() => templates[selectedTemplate.value as keyof typeof templates]);
+
+const dependencyOptions = computed(() => {
+    if (form.target === 'agent') {
+        return [
+            { label: 'Producción 1er año Vida Trimestral (Agentes)', value: 'agent_first_year_production' },
+        ];
+    }
+    if (form.target === 'promoter') {
+        return [
+            { label: 'Producción de 1er Año Trimestral (Promotor)', value: 'first_year_production' },
+        ];
+    }
+    return [];
+});
 
 const form = useForm({
     name: templates.activity_ratio.name,
@@ -379,6 +393,9 @@ const submit = () => {
                                             <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad Mínima Requerida</label>
                                             <el-input-number v-model="form.min_product_count" :min="0" style="width: 100%;" />
                                         </div>
+                                        <div class="flex-1 mt-6">
+                                            <el-checkbox v-model="form.requires_mix" label="Requiere combinación" />
+                                        </div>
                                     </div>
                                     
                                 </div>
@@ -386,8 +403,12 @@ const submit = () => {
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Dependencia de otro Bono</label>
                                         <el-select v-model="form.dependency_scheme_id" clearable placeholder="Debe ganar primero..." style="width: 100%;">
-                                            <el-option label="Producción 1er Año Vida" value="agent_first_year_production" />
-                                            <!-- Aquí irían los bonos desde BD -->
+                                            <el-option
+                                                v-for="opt in dependencyOptions"
+                                                :key="opt.value"
+                                                :label="opt.label"
+                                                :value="opt.value"
+                                            />
                                         </el-select>
                                     </div>
                                     <div>

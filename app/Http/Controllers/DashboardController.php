@@ -112,10 +112,57 @@ class DashboardController extends Controller
         $agentBonusSchemes = $bonusSchemes->where('target', 'agent');
         $promoterBonusSchemes = $bonusSchemes->where('target', 'promoter');
 
-        $projectedAgentBonuses = $this->calculateProjectedBonuses($agentBonusSchemes, $policies);
-        $projectedPromoterBonuses = $this->calculateProjectedBonuses($promoterBonusSchemes, $policies);
-        $projectedBonuses = $projectedAgentBonuses + $projectedPromoterBonuses;
+        // ── Calcular bonos reales usando BonusOrchestratorService ─────
+        $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
 
+        $projectedAgentBonuses = 0;
+        $projectedPromoterBonuses = 0;
+
+        // Agentes activos con pólizas en el periodo
+        $activeAgentsWithPolicies = Agent::with(['policies' => function ($q) use ($startDate, $endDate) {
+            $q->whereBetween('issue_date', [$startDate, $endDate]);
+        }])->where('is_active', true)->get()->filter(fn($a) => $a->policies->isNotEmpty());
+
+        foreach ($activeAgentsWithPolicies as $agent) {
+            try {
+                $result = $bonusOrchestrator->calculateAll(
+                    user: $agent,
+                    periodStart: $startDate,
+                    periodEnd: $endDate,
+                    visualRangeStart: $startDate,
+                    visualRangeEnd: $endDate,
+                );
+                $projectedAgentBonuses += $result['summary']['total_amount'] ?? 0;
+            } catch (\Exception $e) {
+                continue;
+            }
+        }
+
+        // Promotores activos con equipo con pólizas en el periodo
+        $activePromotersWithActivity = Promoter::with(['agents.policies' => function ($q) use ($startDate, $endDate) {
+            $q->whereBetween('issue_date', [$startDate, $endDate]);
+        }])->where('is_active', true)->get()->filter(function ($p) {
+            return $p->agents->sum(fn($a) => $a->policies->count()) > 0;
+        });
+
+        foreach ($activePromotersWithActivity as $promoter) {
+            try {
+                $result = $bonusOrchestrator->calculateAll(
+                    user: $promoter,
+                    periodStart: $startDate,
+                    periodEnd: $endDate,
+                    visualRangeStart: $startDate,
+                    visualRangeEnd: $endDate,
+                );
+                $projectedPromoterBonuses += $result['summary']['total_amount'] ?? 0;
+            } catch (\Exception $e) {
+                continue;
+            }
+        }
+
+        $projectedBonuses = round($projectedAgentBonuses + $projectedPromoterBonuses, 2);
+
+        // Periodo anterior: estimación simplificada (no podemos re-ejecutar el orquestador)
         $prevProjectedBonuses = $this->calculateProjectedBonuses($bonusSchemes, $prevPolicies);
         $bonusesGrowth = $prevProjectedBonuses > 0 ? round((($projectedBonuses - $prevProjectedBonuses) / $prevProjectedBonuses) * 100, 1) : 0;
 
@@ -128,7 +175,6 @@ class DashboardController extends Controller
         // para detectar oportunidades: cerca de desbloquear, mezcla de productos, etc.
 
         $alerts = [];
-        $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
 
         // ── 2a. Alerta de cierre de periodo ──────────────────────────
         $daysToClose = now()->diffInDays(now()->endOfQuarter(), false);
@@ -175,6 +221,8 @@ class DashboardController extends Controller
                     user: $agent,
                     periodStart: $startDate,
                     periodEnd: $endDate,
+                    visualRangeStart: $startDate,
+                    visualRangeEnd: $endDate,
                 );
                 $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
 
@@ -257,8 +305,8 @@ class DashboardController extends Controller
                 $orchestratorResult = $bonusOrchestrator->calculateAll(
                     user: $promoter,
                     periodStart: $startDate,
-                    periodEnd: $endDate,
-                );
+                    periodEnd: $endDate,                    visualRangeStart: $startDate,
+                    visualRangeEnd: $endDate,                );
                 $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
 
                 foreach ($bonusesProgress as $bonus) {
@@ -361,7 +409,7 @@ class DashboardController extends Controller
         $topAgents = Agent::with(['policies' => function ($q) use ($startDate, $endDate) {
             $q->whereBetween('issue_date', [$startDate, $endDate]);
         }])->where('is_active', true)->get()
-            ->map(function ($agent) use ($startDate, $endDate, $agentBonusSchemes) {
+            ->map(function ($agent) use ($startDate, $endDate, $agentBonusSchemes, $bonusOrchestrator) {
                 // Sparkline: daily policy count
                 $dailyData = $agent->policies
                     ->groupBy(fn($p) => $p->issue_date->toDateString())
@@ -379,11 +427,12 @@ class DashboardController extends Controller
                 });
 
                 // Calcular bonos ganados por este agente (usando el orquestador)
-                $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
                 $orchestratorResult = $bonusOrchestrator->calculateAll(
                     user: $agent,
                     periodStart: $startDate,
                     periodEnd: $endDate,
+                    visualRangeStart: $startDate,
+                    visualRangeEnd: $endDate,
                 );
                 $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
                 $bonusNames = collect($bonusesProgress)
@@ -422,7 +471,7 @@ class DashboardController extends Controller
         $topPromoters = Promoter::with(['agents.policies' => function ($q) use ($startDate, $endDate) {
             $q->whereBetween('issue_date', [$startDate, $endDate]);
         }])->where('is_active', true)->get()
-            ->map(function ($promoter) use ($promoterBonusSchemes, $startDate, $endDate) {
+            ->map(function ($promoter) use ($promoterBonusSchemes, $startDate, $endDate, $bonusOrchestrator) {
                 $teamVolume = $promoter->agents->sum(function ($agent) {
                     return $agent->policies->sum('premium_amount');
                 });
@@ -465,11 +514,12 @@ class DashboardController extends Controller
                 }
 
                 // Bonus details usando el orquestador para obtener montos
-                $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
                 $orchestratorResult = $bonusOrchestrator->calculateAll(
                     user: $promoter,
                     periodStart: $startDate,
                     periodEnd: $endDate,
+                    visualRangeStart: $startDate,
+                    visualRangeEnd: $endDate,
                 );
                 $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
                 $bonusDetails = collect($bonusesProgress)
@@ -491,6 +541,31 @@ class DashboardController extends Controller
                 $bonusesSecured = count($bonusNames);
                 $bonusesTotal = max(count($bonusesProgress), 4);
 
+                // ── Calcular comisiones del promotor ─────────────────
+                $totalCommission = 0;
+                $commissionScheme = Scheme::with(['versions.tiers'])
+                    ->where('type', 'commission')
+                    ->where('is_active', true)
+                    ->whereIn('target', ['promoter', 'both'])
+                    ->first();
+
+                if ($commissionScheme) {
+                    $commVersion = $commissionScheme->versions->sortByDesc('starts_at')->first();
+                    if ($commVersion && $commVersion->tiers->isNotEmpty()) {
+                        foreach ($promoter->agents as $agent) {
+                            foreach ($agent->policies as $policy) {
+                                $productType = $policy->product_type;
+                                $tier = $commVersion->tiers->first(function ($t) use ($productType) {
+                                    $conds = $t->conditions ?? [];
+                                    return ($conds['product_type'] ?? '') === $productType;
+                                });
+                                $pct = $tier ? (float) ($tier->promoter_percentage ?? 0) : 0;
+                                $totalCommission += (float) $policy->premium_amount * ($pct / 100);
+                            }
+                        }
+                    }
+                }
+
                 return [
                     'id' => $promoter->id,
                     'name' => $promoter->name,
@@ -500,6 +575,7 @@ class DashboardController extends Controller
                     'bonuses_total' => $bonusesTotal,
                     'bonus_names' => $bonusNames,
                     'bonus_details' => $bonusDetails,
+                    'total_commission' => round($totalCommission, 2),
                 ];
             })
             ->sortByDesc('team_volume')

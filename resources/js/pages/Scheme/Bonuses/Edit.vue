@@ -53,6 +53,20 @@ const activeTemplateKey = props.scheme.template_key && Object.keys(templates).in
 
 const currentTemplate = computed(() => templates[activeTemplateKey as keyof typeof templates]);
 
+const dependencyOptions = computed(() => {
+    if (form.target === 'agent') {
+        return [
+            { label: 'Producción 1er año Vida Trimestral (Agentes)', value: 'agent_first_year_production' },
+        ];
+    }
+    if (form.target === 'promoter') {
+        return [
+            { label: 'Producción de 1er Año Trimestral (Promotor)', value: 'first_year_production' },
+        ];
+    }
+    return [];
+});
+
 const currentVersion = props.scheme.versions[props.scheme.versions.length - 1] || {};
 
 const form = useForm({
@@ -235,18 +249,23 @@ const submit = () => {
                                         <div class="flex-1">
                                             <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad Mínima Requerida</label>
                                             <el-input-number v-model="form.min_product_count" :min="0" style="width: 100%;" />
-                                        </div>                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Dependencia de otro Bono</label>
-                                        <el-select v-model="form.dependency_scheme_id" clearable placeholder="Debe ganar primero..." style="width: 100%;">
-                                            <el-option label="Producción 1er Año Vida" value="agent_first_year_production" />
-                                        </el-select>
+                                        </div>
+                                        <div class="flex-1 mt-6">
+                                            <el-checkbox v-model="form.requires_mix" label="Requiere combinación" />
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="space-y-4 border-l pl-6 border-gray-100">
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Índice de Retención Mínimo (IRP %)</label>
-                                        <el-input-number v-model="form.min_irp" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" />
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Dependencia de otro Bono</label>
+                                        <el-select v-model="form.dependency_scheme_id" clearable placeholder="Debe ganar primero..." style="width: 100%;">
+                                            <el-option
+                                                v-for="opt in dependencyOptions"
+                                                :key="opt.value"
+                                                :label="opt.label"
+                                                :value="opt.value"
+                                            />
+                                        </el-select>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Eficiencia de Cobro Mínima (%)</label>

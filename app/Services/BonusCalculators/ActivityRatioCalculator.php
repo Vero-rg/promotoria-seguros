@@ -61,15 +61,35 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
         }
 
         // ── 2. Verificar dependencia ───────────────────────────────────
+        $prerequisiteName = null;
+        $dependencyMet = true; // Sin dependencia → siempre true
+
         if (!empty($scheme->dependency_scheme_id)) {
-            $prerequisite = Scheme::where('id', (int) $scheme->dependency_scheme_id)
+            $prerequisite = Scheme::where('template_key', $scheme->dependency_scheme_id)
                 ->where('is_active', true)
                 ->first();
 
             if ($prerequisite === null) {
                 return $this->notAchieved(
-                    reason: "El bono prerequisite (ID: {$scheme->dependency_scheme_id}) no está activo o no existe.",
+                    reason: "El bono prerequisite ({$scheme->dependency_scheme_id}) no está activo o no existe.",
                 );
+            }
+
+            $prerequisiteName = $prerequisite->name;
+
+            // Computar dinámicamente si el bono prerequisite fue alcanzado.
+            // Para 'agent_first_year_production', instanciamos el calculador
+            // padre y evaluamos contra los mismos parámetros de periodo.
+            if ($prerequisite->template_key === 'agent_first_year_production') {
+                $prerequisite->loadMissing(['versions.tiers']);
+                $parentCalculator = new AgentFirstYearProductionCalculator();
+                $parentResult = $parentCalculator->calculate(
+                    $user,
+                    $prerequisite,
+                    $periodStart,
+                    $periodEnd
+                );
+                $dependencyMet = $parentResult['is_achieved'] ?? false;
             }
         }
 
@@ -89,10 +109,15 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                 : PHP_FLOAT_MAX;
 
             if ($monthlyAverage >= $minPolicies && $monthlyAverage <= $maxPolicies) {
-                $amount = $this->calculateAmount($tier, $user, $pca);
+                // Incluso si el tier coincide, el bono NO se desbloquea
+                // si la dependencia prerequisite no fue alcanzada.
+                $isAchieved = $dependencyMet;
+                $amount = $isAchieved
+                    ? $this->calculateAmount($tier, $user, $pca)
+                    : 0.0;
 
                 return [
-                    'is_achieved' => true,
+                    'is_achieved' => $isAchieved,
                     'amount'      => $amount,
                     'tier_index'  => $index,
                     'tier_data'   => $tier->toArray(),
@@ -102,6 +127,12 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                         'required_value' => $minPolicies,
                     ],
                     'progress_breakdown' => [
+                        [
+                            'label'   => $prerequisiteName ?? 'Bono Producción 1er año Vida Trimestral',
+                            'current' => $dependencyMet ? 1 : 0,
+                            'target'  => 1,
+                            'met'     => $dependencyMet,
+                        ],
                         [
                             'label'   => 'Pólizas Totales',
                             'current' => $this->getRawPolicyCount($user, $periodStart, $periodEnd),
@@ -146,6 +177,8 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
             rawCount: $this->getRawPolicyCount($user, $periodStart, $periodEnd),
             pca: $pca,
             minRequired: $tiers->last()?->conditions['min_policies'] ?? 0,
+            prerequisiteName: $prerequisiteName,
+            dependencyMet: $dependencyMet,
         );
     }
 
@@ -257,8 +290,49 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
         int $rawCount = 0,
         float $pca = 0.0,
         ?float $minRequired = null,
+        ?string $prerequisiteName = null,
+        ?bool $dependencyMet = null,
     ): array {
         $target = $minRequired ?? 0.0;
+        // Si no se pasó explícitamente, asumir true (sin dependencia → ok).
+        $depMet = $dependencyMet ?? true;
+
+        $breakdown = [];
+
+        // Barra de dependencia (refleja el estado real del bono prerequisite)
+        if ($prerequisiteName !== null) {
+            $breakdown[] = [
+                'label'   => $prerequisiteName,
+                'current' => $depMet ? 1 : 0,
+                'target'  => 1,
+                'met'     => $depMet,
+            ];
+        }
+
+        $breakdown[] = [
+            'label'   => 'Pólizas Totales',
+            'current' => $rawCount,
+            'target'  => 0,
+            'met'     => $rawCount > 0,
+        ];
+        $breakdown[] = [
+            'label'   => 'Total Ponderado (PNA)',
+            'current' => $weightedTotal,
+            'target'  => 0,
+            'met'     => $weightedTotal > 0,
+        ];
+        $breakdown[] = [
+            'label'   => 'Promedio Mensual Ponderado',
+            'current' => $monthlyAverage,
+            'target'  => $target,
+            'met'     => $target > 0 ? $monthlyAverage >= $target : false,
+        ];
+        $breakdown[] = [
+            'label'   => 'PCA Trimestral ($)',
+            'current' => round($pca, 2),
+            'target'  => 0,
+            'met'     => $pca > 0,
+        ];
 
         return [
             'is_achieved' => false,
@@ -270,32 +344,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                 'current_value'  => $monthlyAverage,
                 'required_value' => $target,
             ],
-            'progress_breakdown' => [
-                [
-                    'label'   => 'Pólizas Totales',
-                    'current' => $rawCount,
-                    'target'  => 0,
-                    'met'     => $rawCount > 0,
-                ],
-                [
-                    'label'   => 'Total Ponderado (PNA)',
-                    'current' => $weightedTotal,
-                    'target'  => 0,
-                    'met'     => $weightedTotal > 0,
-                ],
-                [
-                    'label'   => 'Promedio Mensual Ponderado',
-                    'current' => $monthlyAverage,
-                    'target'  => $target,
-                    'met'     => $target > 0 ? $monthlyAverage >= $target : false,
-                ],
-                [
-                    'label'   => 'PCA Trimestral ($)',
-                    'current' => round($pca, 2),
-                    'target'  => 0,
-                    'met'     => $pca > 0,
-                ],
-            ],
+            'progress_breakdown' => $breakdown,
             'details' => ['reason' => $reason],
         ];
     }

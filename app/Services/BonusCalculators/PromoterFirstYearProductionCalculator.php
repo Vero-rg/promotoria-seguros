@@ -78,10 +78,10 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         // 3b. Cuota trimestral de reclutamiento
         $quarterlyQuota = $scheme->quarterly_recruits ?? [];
         if (!empty($quarterlyQuota)) {
-            $currentQuarter = $this->getCurrentQuarter();
+            $currentQuarter = $this->getCurrentQuarter($periodEnd);
             $requiredRecruits = $quarterlyQuota[$currentQuarter] ?? 0;
             if ($requiredRecruits > 0) {
-                $actualRecruits = $this->countYearToDateRecruits($user, $currentQuarter);
+                $actualRecruits = $this->countYearToDateRecruits($user, $periodEnd);
                 if ($actualRecruits < $requiredRecruits) {
                     return $this->notAchieved(
                         reason: "Cuota trimestral Q{$currentQuarter} no cumplida: requiere {$requiredRecruits} reclutas, tiene {$actualRecruits}.",
@@ -226,15 +226,33 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
             ->count();
     }
 
-    private function getCurrentQuarter(): int
+    /**
+     * Determina el trimestre calendario a partir de la fecha de fin del periodo evaluado.
+     *
+     * Ejemplo: si $periodEnd es 2025-03-31, el mes es 3 → Q1.
+     *           si $periodEnd es 2025-08-15, el mes es 8 → Q3.
+     *
+     * @param  Carbon  $periodEnd  Fecha de cierre del periodo evaluado.
+     * @return int  1, 2, 3 o 4.
+     */
+    private function getCurrentQuarter(Carbon $periodEnd): int
     {
-        return (int) ceil(Carbon::now()->month / 3);
+        return (int) ceil($periodEnd->month / 3);
     }
 
-    private function countYearToDateRecruits(Promoter $promoter, int $quarter): int
+    /**
+     * Cuenta los agentes reclutados desde el inicio del año hasta el cierre
+     * del trimestre evaluado, tomando como referencia el año de $periodEnd.
+     *
+     * @param  Promoter  $promoter   Promotor cuyos reclutas se cuentan.
+     * @param  Carbon    $periodEnd  Fecha de cierre del periodo evaluado.
+     * @return int
+     */
+    private function countYearToDateRecruits(Promoter $promoter, Carbon $periodEnd): int
     {
-        $yearStart  = Carbon::now()->startOfYear();
-        $quarterEnd = Carbon::now()->startOfYear()->addMonths($quarter * 3)->endOfMonth();
+        $quarter   = (int) ceil($periodEnd->month / 3);
+        $yearStart = $periodEnd->copy()->startOfYear();
+        $quarterEnd = $periodEnd->copy()->startOfYear()->addMonths($quarter * 3)->endOfMonth();
 
         return $promoter->agents()
             ->whereBetween('created_at', [$yearStart, $quarterEnd])

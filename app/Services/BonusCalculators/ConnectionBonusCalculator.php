@@ -55,41 +55,27 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
 
         // ── Calcular PCA individual de cada recluta ─────────────────────
         $recruitPcas = $this->calculateIndividualPcas($user, $periodStart, $periodEnd);
+        $totalRecruits = count($recruitPcas);
 
         if (empty($recruitPcas)) {
+            // Referencia: el tier más accesible para mostrar metas en el breakdown
+            $easiestTier = $tiers->sortBy(fn (SchemeTier $t) => [
+                (int) ($t->conditions['min_recruits'] ?? PHP_INT_MAX),
+                (float) ($t->conditions['min_pca'] ?? PHP_FLOAT_MAX),
+            ])->first();
+            $refMinRecruits = (int) ($easiestTier->conditions['min_recruits'] ?? 0);
+            $refMinPca = (float) ($easiestTier->conditions['min_pca'] ?? 0);
+
             return $this->notAchieved(
                 reason: 'No se encontraron agentes reclutados en el periodo.',
-                recruitCount: 0,
-                totalPca: 0.0,
-                universalThreshold: $universalThreshold ?? $tiers->min(fn (SchemeTier $t) => (float) ($t->conditions['min_pca'] ?? PHP_FLOAT_MAX)),
-                minRecruits: $tiers->min(fn (SchemeTier $t) => (int) ($t->conditions['min_recruits'] ?? PHP_INT_MAX)),
+                totalRecruits: 0,
+                qualifiedCount: 0,
+                totalQualifiedPca: 0.0,
+                highestPca: 0.0,
+                minRecruits: $refMinRecruits,
+                minPca: $refMinPca,
             );
         }
-
-        // ── Determinar umbral universal (el menor min_pca de todos los tiers) ──
-        $universalThreshold = $tiers->min(function (SchemeTier $tier) {
-            return (float) ($tier->conditions['min_pca'] ?? PHP_FLOAT_MAX);
-        });
-
-        // ── Filtrar reclutas por umbral universal ───────────────────────
-        $qualifiedByUniversal = array_filter(
-            $recruitPcas,
-            fn (float $pca) => $pca >= $universalThreshold
-        );
-
-        if (empty($qualifiedByUniversal)) {
-            return $this->notAchieved(
-                reason: 'Ningún recluta alcanza el PCA mínimo universal de $' . number_format($universalThreshold),
-                recruitCount: count($recruitPcas),
-                totalPca: array_sum($recruitPcas),
-                universalThreshold: $universalThreshold,
-                minRecruits: $tiers->min(fn (SchemeTier $t) => (int) ($t->conditions['min_recruits'] ?? PHP_INT_MAX)),
-            );
-        }
-
-        $qualifiedCount = count($qualifiedByUniversal);
-        $highestPca     = max($qualifiedByUniversal);
-        $totalQualifiedPca = array_sum($qualifiedByUniversal);
 
         // ── Evaluar cada tier de la matriz (mejor porcentaje primero) ────
         foreach ($tiers as $index => $tier) {
@@ -100,17 +86,21 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
                 : PHP_INT_MAX;
             $minPca = (float) ($conditions['min_pca'] ?? 0);
 
-            // ¿La cantidad de reclutas cae en la franja?
+            // ── Filtrar reclutas por el min_pca ESPECÍFICO de este tier ──
+            $qualifiedByTier = array_filter(
+                $recruitPcas,
+                fn (float $pca) => $pca >= $minPca
+            );
+            $qualifiedCount = count($qualifiedByTier);
+
+            // ── Validar franja de volumen [min_recruits, max_recruits] ──
             if ($qualifiedCount < $minRecruits || $qualifiedCount > $maxRecruits) {
                 continue;
             }
 
-            // ¿El recluta con mayor PCA individual supera el umbral de este tier?
-            if ($highestPca < $minPca) {
-                continue;
-            }
-
-            // ── ¡Match! Calcular monto ──────────────────────────────────
+            // ── ¡Match! Calcular monto sobre la base EXCLUSIVA del tier ──
+            $highestPca = $qualifiedCount > 0 ? max($qualifiedByTier) : 0.0;
+            $totalQualifiedPca = array_sum($qualifiedByTier);
             $amount = $this->calculateAmount($tier, $user, $totalQualifiedPca);
 
             return [
@@ -136,19 +126,13 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
                         'target'  => $minPca,
                         'met'     => $highestPca >= $minPca,
                     ],
-                    [
-                        'label'   => 'PCA Total Calificada ($)',
-                        'current' => round($totalQualifiedPca, 2),
-                        'target'  => 0,
-                        'met'     => true,
-                    ],
                 ],
                 'details'     => [
                     'calculator'            => static::class,
                     'version_name'          => $version->version_name,
-                    'total_recruits'        => count($recruitPcas),
+                    'total_recruits'        => $totalRecruits,
                     'qualified_recruits'    => $qualifiedCount,
-                    'universal_threshold'   => $universalThreshold,
+                    'min_pca_tier'          => $minPca,
                     'highest_individual_pca' => round($highestPca, 2),
                     'total_qualified_pca'   => round($totalQualifiedPca, 2),
                     'individual_pcas'       => array_map(fn ($v) => round($v, 2), $recruitPcas),
@@ -157,14 +141,29 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
         }
 
         // ── Ningún tier coincidió ───────────────────────────────────────
+        // Referencia: el tier más accesible para mostrar metas en el breakdown
+        $easiestTier = $tiers->sortBy(fn (SchemeTier $t) => [
+            (int) ($t->conditions['min_recruits'] ?? PHP_INT_MAX),
+            (float) ($t->conditions['min_pca'] ?? PHP_FLOAT_MAX),
+        ])->first();
+        $refMinRecruits = (int) ($easiestTier->conditions['min_recruits'] ?? 0);
+        $refMinPca = (float) ($easiestTier->conditions['min_pca'] ?? 0);
+
+        // Calcular progreso contra el tier más accesible
+        $refQualified = array_filter($recruitPcas, fn (float $pca) => $pca >= $refMinPca);
+        $refCount = count($refQualified);
+        $refHighestPca = $refCount > 0 ? max($refQualified) : 0.0;
+        $refTotalPca = array_sum($refQualified);
+
         return $this->notAchieved(
-            reason: 'Ningún tier coincide. Reclutas calificados: ' . $qualifiedCount .
-                    ', PCA total calificado: $' . number_format($totalQualifiedPca, 2) .
-                    ', PCA más alto: $' . number_format($highestPca, 2),
-            recruitCount: $qualifiedCount,
-            totalPca: $totalQualifiedPca,
-            universalThreshold: $universalThreshold,
-            minRecruits: $tiers->min(fn (SchemeTier $t) => (int) ($t->conditions['min_recruits'] ?? PHP_INT_MAX)),
+            reason: 'Ningún tier coincide. Total reclutas: ' . $totalRecruits .
+                    ', PCA total: $' . number_format(array_sum($recruitPcas), 2),
+            totalRecruits: $totalRecruits,
+            qualifiedCount: $refCount,
+            totalQualifiedPca: $refTotalPca,
+            highestPca: $refHighestPca,
+            minRecruits: $refMinRecruits,
+            minPca: $refMinPca,
         );
     }
 
@@ -241,14 +240,25 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
     }
 
     /**
-     * Retorna un resultado estándar de «no alcanzado».
+     * Retorna un resultado estándar de «no alcanzado» con breakdown
+     * sincronizado al tier de referencia más accesible.
+     *
+     * @param  string      $reason             Motivo del fallo.
+     * @param  int         $totalRecruits      Total de reclutas en el periodo.
+     * @param  int         $qualifiedCount     Reclutas que califican contra el tier de referencia.
+     * @param  float       $totalQualifiedPca  Suma del PCA de los reclutas calificados.
+     * @param  float       $highestPca         PCA individual más alto entre los calificados.
+     * @param  int|null    $minRecruits        Meta mínima de reclutas del tier de referencia.
+     * @param  float|null  $minPca             PCA mínimo por recluta del tier de referencia.
      */
     private function notAchieved(
         string $reason,
-        int $recruitCount = 0,
-        float $totalPca = 0.0,
-        ?float $universalThreshold = null,
+        int $totalRecruits = 0,
+        int $qualifiedCount = 0,
+        float $totalQualifiedPca = 0.0,
+        float $highestPca = 0.0,
         ?int $minRecruits = null,
+        ?float $minPca = null,
     ): array {
         return [
             'is_achieved' => false,
@@ -257,32 +267,27 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
             'tier_data'   => null,
             'progress'    => [
                 'metric_label'   => 'Reclutas Calificados',
-                'current_value'  => $recruitCount,
+                'current_value'  => $qualifiedCount,
                 'required_value' => (float) ($minRecruits ?? 0),
             ],
             'progress_breakdown' => [
                 [
                     'label'   => 'Reclutas que Califican',
-                    'current' => $recruitCount,
+                    'current' => $qualifiedCount,
                     'target'  => $minRecruits ?? 0,
-                    'met'     => $minRecruits !== null ? $recruitCount >= $minRecruits : false,
+                    'met'     => $minRecruits !== null ? $qualifiedCount >= $minRecruits : false,
                 ],
                 [
-                    'label'   => 'PCA Mín. por Recluta ($)',
-                    'current' => $recruitCount > 0 ? round($totalPca / $recruitCount, 2) : 0,
-                    'target'  => $universalThreshold ?? 0,
-                    'met'     => $universalThreshold !== null && $recruitCount > 0,
-                ],
-                [
-                    'label'   => 'PCA Total Calificada ($)',
-                    'current' => round($totalPca, 2),
-                    'target'  => 0,
-                    'met'     => $totalPca > 0,
+                    'label'   => 'PCA Individual Más Alta ($)',
+                    'current' => round($highestPca, 2),
+                    'target'  => $minPca ?? 0,
+                    'met'     => $minPca !== null && $highestPca >= $minPca,
                 ],
             ],
             'details' => [
-                'reason'      => $reason,
-                'total_pca'   => round($totalPca, 2),
+                'reason'         => $reason,
+                'total_recruits' => $totalRecruits,
+                'total_pca'      => round($totalQualifiedPca, 2),
             ],
         ];
     }

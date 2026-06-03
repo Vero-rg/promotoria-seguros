@@ -52,14 +52,16 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
         }
 
         // ── 2. Verificar dependencia (dependency_scheme_id) ─────────────
+        $dependencyMet = true; // El orquestador ya verificó; aquí solo documentamos
+
         if (!empty($scheme->dependency_scheme_id)) {
-            $prerequisite = Scheme::where('id', (int) $scheme->dependency_scheme_id)
+            $prerequisite = Scheme::where('template_key', $scheme->dependency_scheme_id)
                 ->where('is_active', true)
                 ->first();
 
             if ($prerequisite === null) {
                 return $this->notAchieved(
-                    reason: "El bono prerequisite (ID: {$scheme->dependency_scheme_id}) no está activo o no existe.",
+                    reason: "El bono prerequisite ({$scheme->dependency_scheme_id}) no está activo o no existe.",
                 );
             }
 
@@ -96,6 +98,12 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
                     ],
                     'progress_breakdown' => [
                         [
+                            'label'   => $prerequisiteName ?? 'Bono Producción 1er Año de Vida Trimestral',
+                            'current' => $dependencyMet ? 1 : 0,
+                            'target'  => 1,
+                            'met'     => $dependencyMet,
+                        ],
+                        [
                             'label'   => 'Agentes Activos Calificados',
                             'current' => $activeAgentCount,
                             'target'  => $minAgents,
@@ -125,6 +133,7 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
             agentCount: $activeAgentCount,
             totalPp: $totalPP,
             minRequired: $tiers->min(fn (SchemeTier $t) => (int) ($t->conditions['min_agents'] ?? PHP_INT_MAX)),
+            prerequisiteName: $prerequisiteName,
         );
     }
 
@@ -184,7 +193,33 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
         int $agentCount = 0,
         float $totalPp = 0.0,
         ?int $minRequired = null,
+        ?string $prerequisiteName = null,
     ): array {
+        $breakdown = [];
+
+        // Barra de dependencia (si aplica — el orquestador ya verificó, así que va 1/1)
+        if ($prerequisiteName !== null) {
+            $breakdown[] = [
+                'label'   => $prerequisiteName,
+                'current' => 1,
+                'target'  => 1,
+                'met'     => true,
+            ];
+        }
+
+        $breakdown[] = [
+            'label'   => 'Agentes Activos Calificados',
+            'current' => $agentCount,
+            'target'  => $minRequired ?? 0,
+            'met'     => $minRequired !== null ? $agentCount >= $minRequired : false,
+        ];
+        $breakdown[] = [
+            'label'   => 'PP Total del Equipo ($)',
+            'current' => round($totalPp, 2),
+            'target'  => 0,
+            'met'     => $totalPp > 0,
+        ];
+
         return [
             'is_achieved' => false,
             'amount'      => 0.0,
@@ -195,20 +230,7 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
                 'current_value'  => $agentCount,
                 'required_value' => 0.0,
             ],
-            'progress_breakdown' => [
-                [
-                    'label'   => 'Agentes Activos Calificados',
-                    'current' => $agentCount,
-                    'target'  => $minRequired ?? 0,
-                    'met'     => $minRequired !== null ? $agentCount >= $minRequired : false,
-                ],
-                [
-                    'label'   => 'PP Total del Equipo ($)',
-                    'current' => round($totalPp, 2),
-                    'target'  => 0,
-                    'met'     => $totalPp > 0,
-                ],
-            ],
+            'progress_breakdown' => $breakdown,
             'details' => ['reason' => $reason],
         ];
     }

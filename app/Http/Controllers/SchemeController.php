@@ -113,24 +113,8 @@ class SchemeController extends Controller
                 ->update(['is_active' => false]);
         }
 
-        // ── Resolver dependency_scheme_id ─────────────────────────────
-        // El frontend puede enviar un nombre de esquema (string) o un ID (int).
-        // Si es un string no numérico, lo buscamos por nombre (template_key o name).
-        $dependencyId = null;
-        if (!empty($validated['dependency_scheme_id'])) {
-            $depInput = $validated['dependency_scheme_id'];
-            if (is_numeric($depInput)) {
-                $dependencyId = (int) $depInput;
-            } else {
-                $depScheme = Scheme::where('type', 'bonus')
-                    ->where(function ($q) use ($depInput) {
-                        $q->where('name', $depInput)
-                          ->orWhere('template_key', $depInput);
-                    })
-                    ->first();
-                $dependencyId = $depScheme?->id;
-            }
-        }
+        // ── dependency_scheme_id se guarda como template_key (string) ──
+        $dependencyId = $validated['dependency_scheme_id'] ?? null;
 
         $scheme = Scheme::create([
             'name' => $validated['name'],
@@ -252,23 +236,8 @@ class SchemeController extends Controller
                 ->update(['is_active' => false]);
         }
 
-        // ── Resolver dependency_scheme_id ─────────────────────────────
-        $dependencyId = null;
-        if (!empty($validated['dependency_scheme_id'])) {
-            $depInput = $validated['dependency_scheme_id'];
-            if (is_numeric($depInput)) {
-                $dependencyId = (int) $depInput;
-            } else {
-                $depScheme = Scheme::where('type', 'bonus')
-                    ->where(function ($q) use ($depInput) {
-                        $q->where('name', $depInput)
-                          ->orWhere('template_key', $depInput);
-                    })
-                    ->where('id', '!=', $scheme->id) // No puede depender de sí mismo
-                    ->first();
-                $dependencyId = $depScheme?->id;
-            }
-        }
+        // ── dependency_scheme_id se guarda como template_key (string) ──
+        $dependencyId = $validated['dependency_scheme_id'] ?? null;
 
         $scheme->update([
             'name' => $validated['name'],

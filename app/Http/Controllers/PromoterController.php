@@ -160,12 +160,19 @@ class PromoterController extends Controller
         });
 
         // ─── Esquemas de Bono para Promotores (Orquestador Strategy) ────
+        //    El orquestador expande automáticamente el periodo para bonos
+        //    trimestrales/anuales según la frecuencia de cada esquema.
         $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
+
+        $visualStart = \Carbon\Carbon::parse($startDate);
+        $visualEnd   = \Carbon\Carbon::parse($endDate);
 
         $orchestratorResult = $bonusOrchestrator->calculateAll(
             user: $promoter,
-            periodStart: \Carbon\Carbon::parse($startDate),
-            periodEnd: \Carbon\Carbon::parse($endDate),
+            periodStart: $visualStart,
+            periodEnd: $visualEnd,
+            visualRangeStart: $visualStart,
+            visualRangeEnd: $visualEnd,
         );
 
         $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
@@ -173,6 +180,60 @@ class PromoterController extends Controller
         // 4. Bonos Alcanzados
         $bonusesAchieved = count(array_filter($bonusesProgress, fn($b) => $b['unlocked'] ?? false));
         $bonusesTotal = count($bonusesProgress);
+
+        // ─── Comisiones del Promotor (basado en esquema de comisión activo) ────
+        $commissionScheme = \App\Models\Scheme::with(['versions.tiers'])
+            ->where('type', 'commission')
+            ->where('is_active', true)
+            ->whereIn('target', ['promoter', 'both'])
+            ->first();
+
+        $commissionsByAgent = [];
+        $totalPromoterCommission = 0;
+
+        if ($commissionScheme) {
+            $latestVersion = $commissionScheme->versions->sortByDesc('starts_at')->first();
+
+            if ($latestVersion && $latestVersion->tiers->isNotEmpty()) {
+                foreach ($agents as $agent) {
+                    $agentCommission = 0;
+                    $agentPolicies = [];
+
+                    foreach ($agent->policies as $policy) {
+                        $productType = $policy->product_type;
+                        $tier = $latestVersion->tiers->first(function ($t) use ($productType) {
+                            $conds = $t->conditions ?? [];
+                            return ($conds['product_type'] ?? '') === $productType;
+                        });
+
+                        $percentage = $tier ? (float) ($tier->promoter_percentage ?? 0) : 0;
+                        $commission = (float) $policy->premium_amount * ($percentage / 100);
+                        $agentCommission += $commission;
+
+                        $agentPolicies[] = [
+                            'id' => $policy->id,
+                            'client_name' => $policy->client_name,
+                            'product_type' => $productType,
+                            'premium_amount' => (float) $policy->premium_amount,
+                            'percentage' => $percentage,
+                            'commission' => round($commission, 2),
+                        ];
+                    }
+
+                    if ($agentCommission > 0 || $agent->policies->isNotEmpty()) {
+                        $commissionsByAgent[] = [
+                            'agent_id' => $agent->id,
+                            'agent_name' => $agent->name,
+                            'photo' => $agent->photo,
+                            'total_commission' => round($agentCommission, 2),
+                            'policies_count' => $agent->policies->count(),
+                            'policies' => $agentPolicies,
+                        ];
+                        $totalPromoterCommission += $agentCommission;
+                    }
+                }
+            }
+        }
 
         // ─── Datos por Agente para el Directorio Operativo ─────────────────
         $agentsData = $agents->map(function ($agent) {
@@ -241,6 +302,9 @@ class PromoterController extends Controller
                 'bonuses_total' => $bonusesTotal,
                 'bonuses' => $bonusesProgress,
                 'agents' => $agentsData,
+                'commissions' => $commissionsByAgent,
+                'total_promoter_commission' => round($totalPromoterCommission, 2),
+                'commission_scheme_name' => $commissionScheme?->name ?? null,
             ],
             'filters' => [
                 'start_date' => $startDate,

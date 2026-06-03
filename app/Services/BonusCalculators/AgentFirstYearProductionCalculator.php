@@ -59,7 +59,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
             ? $user->created_at->copy()->addYear()
             : null;
 
-        if ($firstYearEnd === null || Carbon::now()->greaterThan($firstYearEnd)) {
+        if ($firstYearEnd === null || $periodEnd->greaterThan($firstYearEnd)) {
             return $this->notAchieved('El agente ya superó su primer año de producción.');
         }
 

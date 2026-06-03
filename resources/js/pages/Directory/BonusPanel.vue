@@ -12,10 +12,13 @@
  *   {
  *       name, description, step, target, progress, unlocked,
  *       depends_on_previous, conditions: [{ label, current, target, met }],
- *       amount, scheme_id, frequency, metric_base, tier_index
+ *       amount, scheme_id, frequency, metric_base, requires_anticipos, tier_index,
+ *       dependency_scheme_id, dependency_scheme_name,
+ *       periodo_evaluado: string (ej. "01/01/2026 al 31/03/2026"),
+ *       mostrar_alerta_periodo: bool (true si el periodo real > rango visual)
  *   }
  */
-import { CheckCircle2, Lock, Award } from 'lucide-vue-next';
+import { CheckCircle2, Lock, Award, Info } from 'lucide-vue-next';
 
 const props = defineProps({
     bonuses: {
@@ -32,6 +35,16 @@ const props = defineProps({
 // ─── Formateo ──────────────────────────────────────
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value);
+};
+
+/**
+ * Construye la etiqueta de frecuencia + métrica base para el tag visual.
+ * Ejemplo: "TRIMESTRAL (PCA)", "MENSUAL (PNA)", "ANUAL (PP)"
+ */
+const frequencyMetricTag = (bonus) => {
+    const freq = (bonus.frequency || 'mensual').toUpperCase();
+    const metric = (bonus.metric_base || '—').toUpperCase();
+    return `${freq} (${metric})`;
 };
 
 /**
@@ -60,6 +73,58 @@ const hasConditions = (bonus) => {
 const isLockedByDependency = (bonus, index) => {
     return bonus.depends_on_previous && index > 0 && !props.bonuses[index - 1]?.unlocked;
 };
+
+/**
+ * Retorna las condiciones efectivas de un bono, inyectando una barra
+ * de progreso adicional si el bono tiene un esquema prerequisite
+ * (dependency_scheme_id). Esto permite visualizar en la UI el estado
+ * del bono padre como una condición más dentro del bono dependiente.
+ *
+ * La barra inyectada tiene:
+ *   - label: nombre del bono prerequisite (dependency_scheme_name)
+ *   - target: 1 (condición binaria)
+ *   - current: 1 si el bono padre está unlocked, 0 si no
+ *   - met: true si current >= target
+ */
+const getEffectiveConditions = (bonus) => {
+    const baseConditions = bonus.conditions || [];
+
+    if (!bonus.dependency_scheme_id) {
+        return baseConditions;
+    }
+
+    const parentBonus = props.bonuses.find(
+        (b) => b.template_key === bonus.dependency_scheme_id
+    );
+
+    const parentUnlocked = parentBonus?.unlocked ?? false;
+    const parentName = bonus.dependency_scheme_name || parentBonus?.name || 'Bono Prerequisite';
+
+    const dependencyCondition = {
+        label: parentName,
+        current: parentUnlocked ? 1 : 0,
+        target: 1,
+        met: parentUnlocked,
+        _isDependency: true,
+    };
+
+    // Si el backend ya mandó la barra de dependencia como primera condición
+    // (identificada por _isDependency: true), la reemplazamos con la versión
+    // actualizada desde el estado real del bono padre. Si no, la insertamos.
+    const firstCondition = baseConditions[0];
+    if (firstCondition?._isDependency) {
+        return [dependencyCondition, ...baseConditions.slice(1)];
+    }
+
+    return [dependencyCondition, ...baseConditions];
+};
+
+/**
+ * Determina si un bono tiene condiciones (originales o inyectadas por dependencia).
+ */
+const hasEffectiveConditions = (bonus) => {
+    return getEffectiveConditions(bonus).length > 0;
+};
 </script>
 
 <template>
@@ -73,19 +138,22 @@ const isLockedByDependency = (bonus, index) => {
             <div v-for="(bonus, idx) in bonuses" :key="idx" class="space-y-3">
                 <!-- Cabecera del Bono -->
                 <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-2">
-                        <CheckCircle2 v-if="bonus.unlocked" class="w-5 h-5 text-green-600" />
-                        <Lock v-else class="w-5 h-5 text-gray-400" />
-                        <span class="text-sm font-medium text-gray-900">{{ bonus.name }}</span>
+                    <div class="flex items-center space-x-2 min-w-0">
+                        <CheckCircle2 v-if="bonus.unlocked" class="w-5 h-5 text-green-600 flex-shrink-0" />
+                        <Lock v-else class="w-5 h-5 text-gray-400 flex-shrink-0" />
+                        <span class="text-sm font-medium text-gray-900 truncate">{{ bonus.name }}</span>
+                        <span class="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide bg-gray-100 text-gray-500">
+                            {{ frequencyMetricTag(bonus) }}
+                        </span>
                     </div>
-                    <span class="text-xs font-medium" :class="bonus.unlocked ? 'text-green-700' : 'text-gray-500'">
+                    <span class="text-xs font-medium flex-shrink-0 ml-2" :class="bonus.unlocked ? 'text-green-700' : 'text-gray-500'">
                         {{ bonus.unlocked ? 'Desbloqueado' : 'Bloqueado' }}
                     </span>
                 </div>
 
                 <!-- Condiciones detalladas del progress_breakdown -->
-                <div v-if="hasConditions(bonus)" class="space-y-2">
-                    <div v-for="(cond, cIdx) in bonus.conditions" :key="cIdx" class="space-y-1">
+                <div v-if="hasEffectiveConditions(bonus)" class="space-y-2">
+                    <div v-for="(cond, cIdx) in getEffectiveConditions(bonus)" :key="cIdx" class="space-y-1">
                         <div class="flex justify-between text-xs">
                             <span class="text-gray-500">{{ cond.label }}</span>
                             <span class="font-medium flex items-center gap-1.5">
@@ -111,7 +179,7 @@ const isLockedByDependency = (bonus, index) => {
                 </div>
 
                 <!-- Barra de progreso principal (fallback si no hay conditions) -->
-                <template v-if="!hasConditions(bonus)">
+                <template v-if="!hasEffectiveConditions(bonus)">
                     <div class="relative">
                         <div class="w-full h-5 bg-[#f5f0eb] rounded-full overflow-hidden">
                             <div class="h-full rounded-full transition-all duration-700 ease-out"
@@ -131,9 +199,20 @@ const isLockedByDependency = (bonus, index) => {
                     </div>
                 </template>
 
+                <!-- Indicador de anticipos -->
+                <div v-if="bonus.requires_anticipos" class="text-[11px] text-amber-600 font-medium italic">
+                    Permite anticipos mensuales
+                </div>
+
                 <!-- Monto del bono si fue alcanzado -->
                 <div v-if="bonus.unlocked && bonus.amount > 0" class="text-xs text-green-700 font-medium text-right">
                     Monto: {{ formatCurrency(bonus.amount) }}
+                </div>
+
+                <!-- Alerta: periodo de evaluación más amplio que el rango visual -->
+                <div v-if="bonus.mostrar_alerta_periodo" class="flex items-start gap-1.5 px-2.5 py-1.5 bg-blue-50/60 border border-blue-100 rounded-lg text-[11px] text-blue-700">
+                    <Info class="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-blue-500" />
+                    <span>Progreso acumulado del periodo <strong>{{ bonus.periodo_evaluado }}</strong>. Incluye meses anteriores por la frecuencia del bono.</span>
                 </div>
             </div>
         </div>
@@ -153,19 +232,22 @@ const isLockedByDependency = (bonus, index) => {
             <div v-for="(bonus, idx) in bonuses" :key="idx" class="space-y-3" :class="isLockedByDependency(bonus, idx) ? '' : ''">
                 <!-- Cabecera del Bono -->
                 <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-2">
-                        <CheckCircle2 v-if="bonus.unlocked" class="w-5 h-5 text-green-600" />
-                        <Lock v-else class="w-5 h-5 text-gray-400" />
-                        <span class="text-sm font-medium text-gray-900">{{ bonus.name }}</span>
+                    <div class="flex items-center space-x-2 min-w-0">
+                        <CheckCircle2 v-if="bonus.unlocked" class="w-5 h-5 text-green-600 flex-shrink-0" />
+                        <Lock v-else class="w-5 h-5 text-gray-400 flex-shrink-0" />
+                        <span class="text-sm font-medium text-gray-900 truncate">{{ bonus.name }}</span>
+                        <span class="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide bg-gray-100 text-gray-500">
+                            {{ frequencyMetricTag(bonus) }}
+                        </span>
                     </div>
-                    <span class="text-xs font-medium" :class="bonus.unlocked ? 'text-green-700' : 'text-gray-500'">
+                    <span class="text-xs font-medium flex-shrink-0 ml-2" :class="bonus.unlocked ? 'text-green-700' : 'text-gray-500'">
                         {{ bonus.unlocked ? 'Desbloqueado' : 'Bloqueado' }}
                     </span>
                 </div>
 
                 <!-- Condiciones detalladas -->
-                <div v-if="hasConditions(bonus)" class="space-y-2">
-                    <div v-for="(cond, cIdx) in bonus.conditions" :key="cIdx" class="space-y-1">
+                <div v-if="hasEffectiveConditions(bonus)" class="space-y-2">
+                    <div v-for="(cond, cIdx) in getEffectiveConditions(bonus)" :key="cIdx" class="space-y-1">
                         <div class="flex justify-between text-xs">
                             <span class="text-gray-500">{{ cond.label }}</span>
                             <span class="font-medium flex items-center gap-1.5">
@@ -189,9 +271,20 @@ const isLockedByDependency = (bonus, index) => {
                     </div>
                 </div>
 
+                <!-- Indicador de anticipos -->
+                <div v-if="bonus.requires_anticipos" class="text-[11px] text-amber-600 font-medium italic">
+                    Permite anticipos mensuales
+                </div>
+
                 <!-- Monto del bono si fue alcanzado -->
                 <div v-if="bonus.unlocked && bonus.amount > 0" class="text-xs text-green-700 font-medium text-right">
                     Monto: {{ formatCurrency(bonus.amount) }}
+                </div>
+
+                <!-- Alerta: periodo de evaluación más amplio que el rango visual -->
+                <div v-if="bonus.mostrar_alerta_periodo" class="flex items-start gap-1.5 px-2.5 py-1.5 bg-blue-50/60 border border-blue-100 rounded-lg text-[11px] text-blue-700">
+                    <Info class="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-blue-500" />
+                    <span>Progreso acumulado del periodo <strong>{{ bonus.periodo_evaluado }}</strong>. Incluye meses anteriores por la frecuencia del bono.</span>
                 </div>
             </div>
         </div>

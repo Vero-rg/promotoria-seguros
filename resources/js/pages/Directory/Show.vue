@@ -98,6 +98,24 @@ const showHistorical = () => {
     });
 };
 
+// ─── Filtros Rápidos por Trimestre ────────────────
+const currentYear = new Date().getFullYear();
+
+const quarters = [
+    { label: 'Q1', months: 'Enero, Febrero, Marzo', start: `${currentYear}-01-01`, end: `${currentYear}-03-31` },
+    { label: 'Q2', months: 'Abril, Mayo, Junio',     start: `${currentYear}-04-01`, end: `${currentYear}-06-30` },
+    { label: 'Q3', months: 'Julio, Agosto, Septiembre', start: `${currentYear}-07-01`, end: `${currentYear}-09-30` },
+    { label: 'Q4', months: 'Octubre, Noviembre, Diciembre', start: `${currentYear}-10-01`, end: `${currentYear}-12-31` },
+];
+
+const activeQuarter = ref(null);
+
+const applyQuarter = (q) => {
+    activeQuarter.value = q.label;
+    dateRange.value = [q.start, q.end];
+    fetchWithDateRange();
+};
+
 // ─── Acordeón de Agentes (Promotor) ────────────────
 const expandedAgent = ref(null);
 const toggleAgent = (agentId) => {
@@ -176,6 +194,24 @@ const toggleAgent = (agentId) => {
                     class="flex-1 sm:max-w-xs"
                     @change="fetchWithDateRange"
                 />
+
+                <!-- Botones rápidos de trimestre -->
+                <div class="flex items-center gap-1">
+                    <button
+                        v-for="q in quarters"
+                        :key="q.label"
+                        type="button"
+                        :title="`${q.label}: ${q.months}`"
+                        @click="applyQuarter(q)"
+                        class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-colors"
+                        :class="activeQuarter === q.label
+                            ? 'bg-[#4a7c59] text-white border-[#4a7c59] shadow-sm'
+                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'"
+                    >
+                        {{ q.label }}
+                    </button>
+                </div>
+
                 <button
                     type="button"
                     @click="showHistorical"
@@ -380,6 +416,80 @@ const toggleAgent = (agentId) => {
                     <!-- ▸ Columna Derecha: Ruta de Bonos (Timeline Stepper) -->
                     <BonusPanel :bonuses="stats.bonuses" type="promoter" />
 
+                </div>
+
+                <!-- ▸ Sección: Comisiones del Promotor por Agente -->
+                <div v-if="stats.commissions && stats.commissions.length > 0" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="px-5 py-4 border-b border-gray-100 bg-emerald-50/30">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wider flex items-center">
+                                <DollarSign class="w-4 h-4 mr-2 text-emerald-600" />
+                                Comisiones por Ventas del Equipo
+                            </h3>
+                            <span class="text-sm font-bold text-emerald-700">
+                                Total: {{ formatCurrency(stats.total_promoter_commission) }}
+                            </span>
+                        </div>
+                        <p v-if="stats.commission_scheme_name" class="text-xs text-gray-400 mt-1">
+                            Esquema: {{ stats.commission_scheme_name }}
+                        </p>
+                    </div>
+
+                    <div class="divide-y divide-gray-50">
+                        <div v-for="(agentComm, acIdx) in stats.commissions" :key="acIdx">
+                            <!-- Cabecera del Agente -->
+                            <div class="px-5 py-4 flex items-center justify-between bg-gray-50/30">
+                                <div class="flex items-center space-x-3">
+                                    <div v-if="getPhotoUrl(agentComm.photo)" class="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
+                                        <img :src="getPhotoUrl(agentComm.photo)" class="w-full h-full object-cover" />
+                                    </div>
+                                    <div v-else class="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center text-gray-500 font-bold text-xs flex-shrink-0">
+                                        {{ getInitials(agentComm.agent_name) }}
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-900">{{ agentComm.agent_name }}</p>
+                                        <p class="text-xs text-gray-400">{{ agentComm.policies_count }} póliza(s)</p>
+                                    </div>
+                                </div>
+                                <span class="text-sm font-bold text-emerald-700">{{ formatCurrency(agentComm.total_commission) }}</span>
+                            </div>
+
+                            <!-- Detalle de pólizas del agente -->
+                            <div v-if="agentComm.policies && agentComm.policies.length > 0" class="px-5 py-3">
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs">
+                                        <thead>
+                                            <tr class="border-b border-gray-100">
+                                                <th class="py-2 text-left text-gray-400 font-medium">Cliente</th>
+                                                <th class="py-2 text-left text-gray-400 font-medium">Producto</th>
+                                                <th class="py-2 text-right text-gray-400 font-medium">Prima</th>
+                                                <th class="py-2 text-right text-gray-400 font-medium">% Com.</th>
+                                                <th class="py-2 text-right text-gray-400 font-medium">Comisión</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-50">
+                                            <tr v-for="(pol, pIdx) in agentComm.policies" :key="pIdx" class="hover:bg-gray-50/50">
+                                                <td class="py-2 text-gray-900">{{ pol.client_name || '—' }}</td>
+                                                <td class="py-2 text-gray-600">{{ productLabels[pol.product_type] || pol.product_type }}</td>
+                                                <td class="py-2 text-right text-gray-700">{{ formatCurrency(pol.premium_amount) }}</td>
+                                                <td class="py-2 text-right text-gray-500">{{ pol.percentage }}%</td>
+                                                <td class="py-2 text-right">
+                                                    <span class="font-medium text-emerald-700">{{ formatCurrency(pol.commission) }}</span>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div v-else class="px-5 py-3 text-xs text-gray-400">Sin pólizas en este periodo.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sin comisiones configuradas -->
+                <div v-else-if="!stats.commissions || stats.commissions.length === 0" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center text-gray-400 text-sm">
+                    <DollarSign class="w-5 h-5 mx-auto mb-2 text-gray-300" />
+                    No hay comisiones configuradas o no hay pólizas en el periodo.
                 </div>
             </template>
 

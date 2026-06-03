@@ -25,6 +25,7 @@ defineProps<{
         bonuses_total: number;
         bonus_names: string[];
         bonus_details: Array<{ name: string; amount: number; progress_label: string }>;
+        total_commission: number;
     }>;
 }>();
 
@@ -295,6 +296,16 @@ const getMedalClass = (idx: number) => {
                             <div v-else class="text-center py-4 text-sm text-gray-400 bg-gray-50 rounded-lg border border-gray-100">
                                 Sin bonos desbloqueados en este periodo.
                             </div>
+                        </div>
+
+                        <!-- Comisiones del Promotor -->
+                        <div class="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100/50">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <DollarSign class="w-4 h-4 text-emerald-600" />
+                                <span class="text-sm font-medium text-emerald-800">Comisiones por Ventas del Equipo</span>
+                            </div>
+                            <p class="text-2xl font-bold text-emerald-700 ml-6">{{ formatCurrency(selectedPromoter.total_commission || 0) }}</p>
+                            <p class="text-xs text-emerald-600/70 ml-6 mt-1">Basado en el esquema de comisiones activo</p>
                         </div>
 
                         <!-- Link a perfil -->

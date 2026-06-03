@@ -43,7 +43,7 @@ class Scheme extends Model
         'requires_product' => 'array',
         'quarterly_recruits' => 'array',
         'pna_equivalences' => 'array',
-        'dependency_scheme_id' => 'integer',
+        'dependency_scheme_id' => 'string',
     ];
 
     // Relación: Un esquema (cuaderno) tiene muchas bandas/niveles a través de sus versiones

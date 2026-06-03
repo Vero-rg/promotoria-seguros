@@ -67,12 +67,19 @@ class AgentController extends Controller
         });
 
         // 3. Bonos: Usar el Orquestador de Bonos (Strategy Pattern)
+        //    El orquestador expande automáticamente el periodo para bonos
+        //    trimestrales/anuales según la frecuencia de cada esquema.
         $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
+
+        $visualStart = \Carbon\Carbon::parse($startDate);
+        $visualEnd   = \Carbon\Carbon::parse($endDate);
 
         $orchestratorResult = $bonusOrchestrator->calculateAll(
             user: $agent,
-            periodStart: \Carbon\Carbon::parse($startDate),
-            periodEnd: \Carbon\Carbon::parse($endDate),
+            periodStart: $visualStart,
+            periodEnd: $visualEnd,
+            visualRangeStart: $visualStart,
+            visualRangeEnd: $visualEnd,
         );
 
         $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
