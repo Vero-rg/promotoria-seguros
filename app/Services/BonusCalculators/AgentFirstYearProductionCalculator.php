@@ -64,10 +64,10 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         }
 
         // ── Validar Reglas Globales del Esquema ────────────────────────
-        $globalRulesResult = $this->validateGlobalRules($user, $scheme, $user->created_at, $firstYearEnd);
-        if ($globalRulesResult !== null) {
-            return $globalRulesResult;
-        }
+        $primordialInfo = $this->validateGlobalRules($user, $scheme);
+        $primordialMet   = $primordialInfo['met'];
+        $primordialCount = $primordialInfo['count'];
+        $primordialRequired = $primordialInfo['required'];
 
         // ── Métrica ────────────────────────────────────────────────────
         $pca = $this->calculateFirstYearPca($user);
@@ -84,9 +84,12 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
             if ($pca >= $minPca) {
                 $amount = $this->calculateAmount($tier, $user, $pca);
 
+                // El bono SOLO se desbloquea si PCA Y Primordial se cumplen
+                $isAchieved = $primordialMet;
+
                 return [
-                    'is_achieved' => true,
-                    'amount'      => $amount,
+                    'is_achieved' => $isAchieved,
+                    'amount'      => $isAchieved ? $amount : 0.0,
                     'tier_index'  => $index,
                     'tier_data'   => $tier->toArray(),
                     'progress'    => [
@@ -100,6 +103,12 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
                             'current' => round($pca, 2),
                             'target'  => $minPca,
                             'met'     => $pca >= $minPca,
+                        ],
+                        [
+                            'label'   => 'Pólizas Primordial',
+                            'current' => $primordialCount,
+                            'target'  => $primordialRequired,
+                            'met'     => $primordialMet,
                         ],
                     ],
                     'details'     => [
@@ -116,6 +125,9 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
             reason: "PCA 1.er año: \$" . number_format($pca, 2),
             currentPca: $pca,
             requiredPca: $easiestTierMinPca,
+            primordialCount: $primordialCount,
+            primordialRequired: $primordialRequired,
+            primordialMet: $primordialMet,
         );
     }
 
@@ -124,23 +136,22 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
     /**
      * Valida las reglas globales del esquema (requires_product, min_product_count).
      *
-     * Retorna un array de error «not achieved» si las reglas no se cumplen,
-     * o null si todo está en orden.
+     * Retorna un arreglo con el conteo de pólizas Primordial y si se cumple
+     * el requisito. Ya NO aborta el flujo — permite que el cálculo continúe
+     * para mostrar el progress_breakdown completo.
      *
-     * @return array|null
+     * @return array{met: bool, count: int, required: int}
      */
     private function validateGlobalRules(
         Agent $agent,
         Scheme $scheme,
-        Carbon $periodStart,
-        Carbon $periodEnd
-    ): ?array {
+    ): array {
         $requiredProducts = $scheme->requires_product ?? [];
         $minProductCount  = (int) ($scheme->min_product_count ?? 0);
 
         // Si no hay productos requeridos configurados, se omite esta validación
         if (empty($requiredProducts) || $minProductCount <= 0) {
-            return null;
+            return ['met' => true, 'count' => 0, 'required' => 0];
         }
 
         foreach ($requiredProducts as $productType) {
@@ -148,25 +159,21 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
             $resolvedTypes = $this->resolveProductAlias($productType);
 
             // Contar TODAS las pólizas del agente de los tipos resueltos, sin limitar por periodo.
-            // El requisito de producto es global (¿tiene el agente este producto?), 
+            // El requisito de producto es global (¿tiene el agente este producto?),
             // mientras que el PCA sí está acotado al primer año.
             $count = $agent->policies()
                 ->whereIn('product_type', $resolvedTypes)
+                ->where('status', Policy::STATUS_PAGADA)
                 ->count();
 
-            if ($count < $minProductCount) {
-                $aliasLabel = count($resolvedTypes) > 1
-                    ? "{$productType} (" . implode(' / ', $resolvedTypes) . ")"
-                    : $productType;
-
-                return $this->notAchieved(
-                    reason: "No cumple con el requisito global de producto: «{$aliasLabel}». " .
-                           "Se requieren al menos {$minProductCount} póliza(s), pero tiene {$count}."
-                );
-            }
+            return [
+                'met'      => $count >= $minProductCount,
+                'count'    => $count,
+                'required' => $minProductCount,
+            ];
         }
 
-        return null; // Todas las reglas globales se cumplen
+        return ['met' => true, 'count' => 0, 'required' => 0];
     }
 
     /**
@@ -184,6 +191,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         return $agent->policies()
             ->whereIn('product_type', $resolvedTypes)
             ->whereBetween('issue_date', [$periodStart, $periodEnd])
+            ->where('status', Policy::STATUS_PAGADA)
             ->count();
     }
 
@@ -196,6 +204,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
 
         return (float) $agent->policies()
             ->whereBetween('issue_date', [$agent->created_at, $firstYearEnd])
+            ->where('status', Policy::STATUS_PAGADA)
             ->sum('premium_amount');
     }
 
@@ -229,15 +238,40 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
     /**
      * Retorna un resultado estándar de «no alcanzado».
      *
-     * @param  string  $reason       Motivo del fallo (legible por humanos).
-     * @param  float   $currentPca   PCA actual para mostrar en el progreso (default 0).
-     * @param  float   $requiredPca  PCA requerido para el tier más bajo (default 0).
+     * @param  string  $reason              Motivo del fallo (legible por humanos).
+     * @param  float   $currentPca          PCA actual para mostrar en el progreso (default 0).
+     * @param  float   $requiredPca         PCA requerido para el tier más bajo (default 0).
+     * @param  int     $primordialCount     Conteo real de pólizas Primordial pagadas.
+     * @param  int     $primordialRequired  Mínimo requerido de pólizas Primordial.
+     * @param  bool    $primordialMet       Si se cumple el requisito Primordial.
      */
     private function notAchieved(
         string $reason,
         float $currentPca = 0.0,
         float $requiredPca = 0.0,
+        int $primordialCount = 0,
+        int $primordialRequired = 0,
+        bool $primordialMet = true,
     ): array {
+        $breakdown = [
+            [
+                'label'   => 'PCA Acumulada 1.er Año ($)',
+                'current' => round($currentPca, 2),
+                'target'  => $requiredPca,
+                'met'     => $requiredPca > 0 ? $currentPca >= $requiredPca : ($currentPca > 0),
+            ],
+        ];
+
+        // Agregar barra de Primordial si el esquema lo requiere
+        if ($primordialRequired > 0) {
+            $breakdown[] = [
+                'label'   => 'Pólizas Primordial',
+                'current' => $primordialCount,
+                'target'  => $primordialRequired,
+                'met'     => $primordialMet,
+            ];
+        }
+
         return [
             'is_achieved' => false,
             'amount'      => 0.0,
@@ -248,14 +282,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
                 'current_value'  => round($currentPca, 2),
                 'required_value' => $requiredPca,
             ],
-            'progress_breakdown' => [
-                [
-                    'label'   => 'PCA Acumulada 1.er Año ($)',
-                    'current' => round($currentPca, 2),
-                    'target'  => $requiredPca,
-                    'met'     => $requiredPca > 0 ? $currentPca >= $requiredPca : ($currentPca > 0),
-                ],
-            ],
+            'progress_breakdown' => $breakdown,
             'details' => ['reason' => $reason],
         ];
     }

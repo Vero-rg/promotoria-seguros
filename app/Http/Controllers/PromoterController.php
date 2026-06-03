@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Promoter;
 use App\Models\Agent;
+use App\Models\Policy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -138,7 +139,9 @@ class PromoterController extends Controller
         $promoter->load(['agents' => function ($query) use ($startDate, $endDate) {
             $query->activeInPeriod($endDate)
                 ->with(['policies' => function ($q) use ($startDate, $endDate) {
-                    $q->whereBetween('issue_date', [$startDate, $endDate])->latest('issue_date');
+                    $q->whereBetween('issue_date', [$startDate, $endDate])
+                        ->where('status', Policy::STATUS_PAGADA)
+                        ->latest('issue_date');
                 }]);
         }]);
 
@@ -156,7 +159,7 @@ class PromoterController extends Controller
 
         // 3. Volumen de Venta del Equipo (suma de primas en el periodo)
         $teamSalesVolume = $agents->sum(function ($agent) {
-            return $agent->policies->sum('premium_amount');
+            return $agent->policies->where('status', Policy::STATUS_PAGADA)->sum('premium_amount');
         });
 
         // ─── Esquemas de Bono para Promotores (Orquestador Strategy) ────
@@ -217,6 +220,7 @@ class PromoterController extends Controller
                             'premium_amount' => (float) $policy->premium_amount,
                             'percentage' => $percentage,
                             'commission' => round($commission, 2),
+                            'status' => $policy->status,
                         ];
                     }
 
@@ -283,6 +287,7 @@ class PromoterController extends Controller
                         'issue_date' => $p->issue_date->toDateString(),
                         'premium_amount' => (float) $p->premium_amount,
                         'commission_amount' => (float) $p->commission_amount,
+                        'status' => $p->status,
                     ];
                 })->values(),
                 'meets_requirement' => $meetsRequirement,

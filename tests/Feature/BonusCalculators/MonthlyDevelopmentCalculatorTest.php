@@ -90,11 +90,11 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
             ->for($agent1)
             ->create([
                 'issue_date' => '2026-03-01',
-                'status'     => Policy::STATUS_ACTIVA,
+                'status'     => Policy::STATUS_PAGADA,
             ]);
 
         // ── Agente extra para cumplir cuota Q2 (necesita 2 reclutas) ────
-        // También genera la eficiencia al cobro: $100K cancelado
+        // También genera la eficiencia al cobro: $100K no tomado (excluido del denominador)
         $agent2 = Agent::factory()
             ->for($promoter, 'promoter')
             ->create([
@@ -106,10 +106,10 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
             ->for($agent2)
             ->create([
                 'issue_date' => '2026-04-01',
-                'status'     => Policy::STATUS_CANCELADA,
+                'status'     => Policy::STATUS_NO_TOMADA,
             ]);
 
-        // Eficiencia = 450K / (450K + 100K) = 81.82% >= 81% ✓
+        // Eficiencia = Pagada / (Pagada + Activa) = 450K / 450K = 100% ≥ 81% ✓
 
         // ── Act ────────────────────────────────────────────────────────
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
@@ -146,7 +146,7 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
             ->for($agent1)
             ->create([
                 'issue_date' => '2026-03-01',
-                'status'     => Policy::STATUS_ACTIVA,
+                'status'     => Policy::STATUS_PAGADA,
             ]);
 
         // ── Agentes extra para eficiencia y cuota Q2 ──────────────────
@@ -162,7 +162,7 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
             ->for($agent2)
             ->create([
                 'issue_date' => '2026-04-01',
-                'status'     => Policy::STATUS_CANCELADA,
+                'status'     => Policy::STATUS_NO_TOMADA,
             ]);
 
         $agent3 = Agent::factory()
@@ -176,10 +176,10 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
             ->for($agent3)
             ->create([
                 'issue_date' => '2026-05-01',
-                'status'     => Policy::STATUS_ACTIVA,
+                'status'     => Policy::STATUS_PAGADA,
             ]);
 
-        // Eficiencia = (450K + 50K) / (450K + 50K + 50K) = 500K/550K = 90.9% ✓
+        // Eficiencia = Pagada / (Pagada + Activa) = (450K + 50K) / (450K + 50K) = 500K/500K = 100% ✓
         // Q2 YTD reclutas = 2 (agent2 + agent3) ✓
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
@@ -203,23 +203,24 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
         $promoter = Promoter::factory()->create();
         $period   = $this->defaultPeriod();
 
-        // ── Agente principal: $450K activo ──────────────────────────────
+        // ── Agente principal: $450K pagado ─────────────────────────────
         $agent1 = Agent::factory()
             ->for($promoter, 'promoter')
             ->create(['created_at' => '2026-01-01', 'is_active' => true]);
 
         Policy::factory()->vida()->withPremium(450_000)
             ->for($agent1)
-            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
 
-        // ── $150K cancelado → eficiencia = 450/(450+150) = 75% ─────────
+        // ── $150K activo (arrastra el denominador sin sumar al numerador)
+        //     → eficiencia = Pagada / (Pagada + Activa) = 450K / 600K = 75%
         $agent2 = Agent::factory()
             ->for($promoter, 'promoter')
             ->create(['created_at' => '2026-02-01', 'is_active' => true]);
 
         Policy::factory()->vida()->withPremium(150_000)
             ->for($agent2)
-            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_CANCELADA]);
+            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_ACTIVA]);
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
@@ -247,7 +248,7 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
 
         Policy::factory()->vida()->withPremium(450_000)
             ->for($agent1)
-            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
 
         // ── Solo 2 reclutas YTD (Q3 requiere 3) ─────────────────────────
         $agent2 = Agent::factory()
@@ -256,9 +257,9 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
 
         Policy::factory()->vida()->withPremium(50_000)
             ->for($agent2)
-            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_PAGADA]);
 
-        // Eficiencia = (450K + 50K) / (450K + 50K) = 100% ✓ (pero falla por cuota)
+        // Eficiencia = Pagada / (Pagada + Activa) = (450K + 50K) / (450K + 50K) = 100% ✓
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
@@ -293,7 +294,7 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
             ->for($agent1)
             ->create([
                 'issue_date' => '2026-03-01',
-                'status'     => Policy::STATUS_ACTIVA,
+                'status'     => Policy::STATUS_PAGADA,
             ]);
 
         // ── Agentes extra para cumplir cuota Q2 (necesita 2 reclutas) ──
@@ -304,7 +305,7 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
 
         Policy::factory()->vida()->withPremium(50_000)
             ->for($agent2)
-            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_PAGADA]);
 
         $agent3 = Agent::factory()
             ->for($promoter, 'promoter')
@@ -312,9 +313,9 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
 
         Policy::factory()->vida()->withPremium(50_000)
             ->for($agent3)
-            ->create(['issue_date' => '2026-05-01', 'status' => Policy::STATUS_CANCELADA]);
+            ->create(['issue_date' => '2026-05-01', 'status' => Policy::STATUS_NO_TOMADA]);
 
-        // Eficiencia = (450K + 50K) / (450K + 50K + 50K) = 500K/550K = 90.9% ✓
+        // Eficiencia = Pagada / (Pagada + Activa) = (450K + 50K) / (450K + 50K) = 500K/500K = 100% ✓
         // Q2 reclutas = 2 (agent2 + agent3, ambos creados en 2026) ✓
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
@@ -342,17 +343,17 @@ class MonthlyDevelopmentCalculatorTest extends TestCase
 
         Policy::factory()->vida()->withPremium(150_000)
             ->for($agent)
-            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
 
-        // Agente extra para cuota y eficiencia (cancelado pequeño para mantener eficiencia ≥ 81%)
-        // Eficiencia = 150K / (150K + 30K) = 83.33% ✓
+        // Agente extra para cuota y eficiencia (no tomado, excluido del denominador)
+        // Eficiencia = Pagada / (Pagada + Activa) = 150K / 150K = 100% ✓
         $aux = Agent::factory()
             ->for($promoter, 'promoter')
             ->create(['created_at' => '2026-02-01', 'is_active' => true]);
 
         Policy::factory()->vida()->withPremium(30_000)
             ->for($aux)
-            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_CANCELADA]);
+            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_NO_TOMADA]);
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 

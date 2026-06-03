@@ -132,6 +132,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                             'current' => $dependencyMet ? 1 : 0,
                             'target'  => 1,
                             'met'     => $dependencyMet,
+                            '_isDependency' => true,
                         ],
                         [
                             'label'   => 'Pólizas Totales',
@@ -199,6 +200,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
     ): float {
         $policies = $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
+            ->where('status', Policy::STATUS_PAGADA)
             ->get();
 
         if ($policies->isEmpty() || empty($equivalences)) {
@@ -242,6 +244,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
     {
         return (float) $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
+            ->where('status', Policy::STATUS_PAGADA)
             ->sum('premium_amount');
     }
 
@@ -252,6 +255,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
     {
         return $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
+            ->where('status', Policy::STATUS_PAGADA)
             ->count();
     }
 
@@ -306,6 +310,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                 'current' => $depMet ? 1 : 0,
                 'target'  => 1,
                 'met'     => $depMet,
+                '_isDependency' => true,
             ];
         }
 

@@ -115,6 +115,10 @@ const formatNumber = (v: number) =>
                         v-for="f in [
                             { key: 'today', label: 'Hoy' },
                             { key: 'month', label: 'Mes' },
+                            { key: 'q1', label: 'Q1' },
+                            { key: 'q2', label: 'Q2' },
+                            { key: 'q3', label: 'Q3' },
+                            { key: 'q4', label: 'Q4' },
                             { key: 'year', label: 'Año' },
                             { key: 'custom', label: 'Personalizado' },
                         ]"

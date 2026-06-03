@@ -14,10 +14,10 @@ const sidebarNavItems: NavItem[] = [
         title: 'Contraseña',
         href: '/settings/password',
     },
-    // {
-    //     title: 'Appearance',
-    //     href: '/settings/appearance',
-    // },
+    {
+        title: 'Appearance',
+        href: '/settings/appearance',
+    },
 ];
 
 const currentPath = window.location.pathname;

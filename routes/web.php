@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Controllers\AgentController;
@@ -8,9 +9,13 @@ use App\Http\Controllers\PolicyController;
 use App\Http\Controllers\SchemeController;
 use App\Http\Controllers\DashboardController;
 
-Route::get('/', function () {
-    return Inertia::render('Welcome');
-})->name('home');
+// Redirección inicial
+Route::redirect('/', '/login');
+
+Route::get('/storage-link', function () {
+    Artisan::call('storage:link');
+    return 'cleared.';
+});
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
@@ -41,6 +46,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/bonos/{scheme}', [SchemeController::class, 'showBonus'])->name('bonos.show');
 
     });
+
 
 });
 

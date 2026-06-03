@@ -56,7 +56,7 @@ class PolicyFactory extends Factory
     public function cancelled(): static
     {
         return $this->state(fn (array $attributes) => [
-            'status' => Policy::STATUS_CANCELADA,
+            'status' => Policy::STATUS_NO_TOMADA,
         ]);
     }
 }

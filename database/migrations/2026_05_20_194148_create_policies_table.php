@@ -28,7 +28,7 @@ return new class extends Migration
             $table->decimal('isr_retention', 5, 2)->default(10.00); 
             $table->decimal('billing_retention', 5, 2)->default(5.00); 
             
-            $table->string('status')->default('activa'); // activa, cancelada, pagada
+            $table->string('status')->default('activa'); // Activa, No tomada, Pagada
             $table->timestamps();
         });
     }

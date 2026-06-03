@@ -187,7 +187,8 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
         $recruits = $promoter->agents()
             ->whereBetween('created_at', [$start, $end])
             ->with(['policies' => function ($query) use ($start, $end) {
-                $query->whereBetween('issue_date', [$start, $end]);
+                $query->whereBetween('issue_date', [$start, $end])
+                    ->where('status', Policy::STATUS_PAGADA);
             }])
             ->get();
 

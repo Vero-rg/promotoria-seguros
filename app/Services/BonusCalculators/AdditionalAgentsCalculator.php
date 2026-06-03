@@ -157,6 +157,7 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
 
         return (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$start, $end])
+            ->where('status', Policy::STATUS_PAGADA)
             ->sum('premium_amount');
     }
 

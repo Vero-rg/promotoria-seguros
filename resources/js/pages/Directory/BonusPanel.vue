@@ -42,6 +42,9 @@ const formatCurrency = (value) => {
  * Ejemplo: "TRIMESTRAL (PCA)", "MENSUAL (PNA)", "ANUAL (PP)"
  */
 const frequencyMetricTag = (bonus) => {
+    if (bonus.template_key === 'monthly_development') {
+        return 'MENSUAL (EVALUACIÓN TRIMESTRAL)';
+    }
     const freq = (bonus.frequency || 'mensual').toUpperCase();
     const metric = (bonus.metric_base || '—').toUpperCase();
     return `${freq} (${metric})`;

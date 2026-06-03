@@ -83,7 +83,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
         $actualRecruits = null;
         if (!empty($quarterlyQuota)) {
             $currentQuarter = $this->getCurrentQuarter($periodEnd);
-            $requiredRecruits = $quarterlyQuota[$currentQuarter] ?? 0;
+            $requiredRecruits = $quarterlyQuota["q{$currentQuarter}"] ?? 0;
             if ($requiredRecruits > 0) {
                 $actualRecruits = $this->countYearToDateRecruits($user, $periodEnd);
             }
@@ -254,15 +254,16 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
 
         $totalPremiums = (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$periodStart, $periodEnd])
+            ->where('status', '!=', Policy::STATUS_NO_TOMADA)
             ->sum('premium_amount');
 
-        $activePremiums = (float) Policy::whereIn('agent_id', $agentIds)
+        $pagadaPremiums = (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$periodStart, $periodEnd])
-            ->where('status', Policy::STATUS_ACTIVA)
+            ->where('status', Policy::STATUS_PAGADA)
             ->sum('premium_amount');
 
         return $totalPremiums > 0
-            ? round(($activePremiums / $totalPremiums) * 100, 2)
+            ? round(($pagadaPremiums / $totalPremiums) * 100, 2)
             : 0.0;
     }
 
@@ -290,9 +291,18 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
         $quarter    = (int) ceil($periodEnd->month / 3);
         $yearStart  = $periodEnd->copy()->startOfYear();
         $quarterEnd = $periodEnd->copy()->startOfYear()->addMonths($quarter * 3)->endOfMonth();
+        $currentQuarterStart = $periodEnd->copy()->startOfQuarter();
 
         return $promoter->agents()
             ->whereBetween('created_at', [$yearStart, $quarterEnd])
+            ->where(function ($query) use ($currentQuarterStart) {
+                $query->where('is_active', true)
+                      ->orWhere(function ($q) use ($currentQuarterStart) {
+                          $q->where('is_active', false)
+                            ->whereNotNull('deactivated_at')
+                            ->where('deactivated_at', '>=', $currentQuarterStart);
+                      });
+            })
             ->count();
     }
 
@@ -303,6 +313,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
     {
         return (float) $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
+            ->where('status', Policy::STATUS_PAGADA)
             ->sum('premium_amount');
     }
 

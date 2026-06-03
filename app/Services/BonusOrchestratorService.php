@@ -622,6 +622,14 @@ class BonusOrchestratorService
      */
     private function resolveEffectivePeriod(Scheme $scheme, Carbon $referenceDate): array
     {
+        // El Bono de Desarrollo Mensual se evalúa comercialmente por trimestre completo.
+        if ($scheme->template_key === 'monthly_development') {
+            return [
+                'start' => $referenceDate->copy()->startOfQuarter(),
+                'end'   => $referenceDate->copy()->endOfQuarter(),
+            ];
+        }
+
         $frequency = strtolower($scheme->frequency ?? 'mensual');
 
         return match ($frequency) {

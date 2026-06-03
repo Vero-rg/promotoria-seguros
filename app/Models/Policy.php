@@ -10,18 +10,18 @@ class Policy extends Model
     use HasFactory;
 
     public const STATUS_ACTIVA = 'Activa';
-    public const STATUS_CANCELADA = 'Cancelada';
+    public const STATUS_NO_TOMADA = 'No tomada';
     public const STATUS_PAGADA = 'Pagada';
 
     public const STATUSES = [
         self::STATUS_ACTIVA,
-        self::STATUS_CANCELADA,
+        self::STATUS_NO_TOMADA,
         self::STATUS_PAGADA,
     ];
 
     public const STATUS_COLORS = [
         self::STATUS_ACTIVA => 'green',
-        self::STATUS_CANCELADA => 'red',
+        self::STATUS_NO_TOMADA => 'gray',
         self::STATUS_PAGADA => 'blue',
     ];
 
@@ -82,11 +82,11 @@ class Policy extends Model
     }
 
     /**
-     * Marca la póliza como cancelada.
+     * Marca la póliza como no tomada.
      */
-    public function cancel(): self
+    public function markAsNoTomada(): self
     {
-        return $this->changeStatus(self::STATUS_CANCELADA);
+        return $this->changeStatus(self::STATUS_NO_TOMADA);
     }
 
     /**
@@ -106,16 +106,61 @@ class Policy extends Model
     }
 
     /**
-     * Calcula el monto neto después de todas las deducciones.
+     * Calcula el monto neto de la comisión del agente después de
+     * deducciones por ISR y costo de facturación sobre la comisión.
+     *
+     * Solo aplica si la póliza está en estatus Pagada; de lo contrario retorna 0.
+     */
+    public function agentNetAmount(): float
+    {
+        if ($this->status !== self::STATUS_PAGADA) {
+            return 0.0;
+        }
+
+        $agentComm = (float) $this->commission_amount;
+        $isrPct    = (float) ($this->isr_retention ?? 0);
+        $billPct   = (float) ($this->billing_retention ?? 0);
+
+        $isr     = $agentComm * ($isrPct / 100);
+        $billing = $agentComm * ($billPct / 100);
+
+        return round($agentComm - $isr - $billing, 2);
+    }
+
+    /**
+     * Calcula el monto neto de la comisión del promotor después de
+     * deducciones por ISR y costo de facturación sobre la comisión.
+     *
+     * Solo aplica si la póliza está en estatus Pagada; de lo contrario retorna 0.
+     */
+    public function promoterNetAmount(): float
+    {
+        if ($this->status !== self::STATUS_PAGADA) {
+            return 0.0;
+        }
+
+        $promoterComm = (float) $this->promoter_commission_amount;
+        $isrPct       = (float) ($this->isr_retention ?? 0);
+        $billPct      = (float) ($this->billing_retention ?? 0);
+
+        $isr     = $promoterComm * ($isrPct / 100);
+        $billing = $promoterComm * ($billPct / 100);
+
+        return round($promoterComm - $isr - $billing, 2);
+    }
+
+    /**
+     * Calcula el monto neto total de la póliza: suma de las comisiones
+     * netas del agente y del promotor después de deducciones.
+     *
+     * Solo aplica si la póliza está en estatus Pagada; de lo contrario retorna 0.
      */
     public function netAmount(): float
     {
-        $premium = (float) $this->premium_amount;
-        $agentComm = (float) $this->commission_amount;
-        $promoterComm = (float) $this->promoter_commission_amount;
-        $isr = $premium * ((float) $this->isr_retention / 100);
-        $billing = $premium * ((float) $this->billing_retention / 100);
+        if ($this->status !== self::STATUS_PAGADA) {
+            return 0.0;
+        }
 
-        return $premium - $agentComm - $promoterComm - $isr - $billing;
+        return round($this->agentNetAmount() + $this->promoterNetAmount(), 2);
     }
 }

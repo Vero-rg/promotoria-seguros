@@ -5,7 +5,7 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import { Plus, FileText, Search, Edit, Trash2, MoreHorizontal } from 'lucide-vue-next';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
-const STATUS_OPTIONS = ['Activa', 'Cancelada', 'Pagada'];
+const STATUS_OPTIONS = ['Activa', 'No tomada', 'Pagada'];
 
 const props = defineProps({
     policies: Array,
@@ -22,7 +22,7 @@ const formatDate = (dateString) => {
 
 const statusColors = {
     activa: 'bg-green-100 text-green-800',
-    cancelada: 'bg-red-100 text-red-800',
+    'no tomada': 'bg-gray-100 text-gray-600',
     pagada: 'bg-blue-100 text-blue-800',
 };
 
@@ -125,7 +125,7 @@ const handleDelete = (row) => {
                        <el-select v-model="statusFilter" placeholder="Todos los estatus" clearable class="w-full sm:max-w-[150px]">
                            <el-option label="Todos" value="" />
                            <el-option label="Activa" value="Activa" />
-                           <el-option label="Cancelada" value="Cancelada" />
+                           <el-option label="No tomada" value="No tomada" />
                            <el-option label="Pagada" value="Pagada" />
                        </el-select>
                    </div>

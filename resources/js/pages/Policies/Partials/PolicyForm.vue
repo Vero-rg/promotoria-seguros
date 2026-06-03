@@ -95,17 +95,30 @@ const summary = computed(() => {
     const isrPct = Number(form.isr_retention) || 0;
     const billingPct = Number(form.billing_retention) || 0;
 
-    const isrAmount = premium * (isrPct / 100);
-    const billingAmount = premium * (billingPct / 100);
-    const totalDeductions = agentComm + promoterComm + isrAmount + billingAmount;
-    const netAmount = premium - totalDeductions;
+    // ISR y facturación se calculan sobre cada comisión, no sobre la prima
+    const isrAgentAmount = agentComm * (isrPct / 100);
+    const billingAgentAmount = agentComm * (billingPct / 100);
+    const agentNetComm = agentComm - isrAgentAmount - billingAgentAmount;
+
+    const isrPromoterAmount = promoterComm * (isrPct / 100);
+    const billingPromoterAmount = promoterComm * (billingPct / 100);
+    const promoterNetComm = promoterComm - isrPromoterAmount - billingPromoterAmount;
+
+    const totalDeductions = isrAgentAmount + billingAgentAmount + isrPromoterAmount + billingPromoterAmount;
+    const netAmount = agentNetComm + promoterNetComm;
 
     return {
         premium,
         agentComm,
         promoterComm,
-        isrAmount,
-        billingAmount,
+        isrPct,
+        billingPct,
+        isrAgentAmount,
+        billingAgentAmount,
+        isrPromoterAmount,
+        billingPromoterAmount,
+        agentNetComm,
+        promoterNetComm,
         totalDeductions,
         netAmount,
     };
@@ -187,7 +200,7 @@ const submit = () => {
                         <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
                         <el-select id="status" v-model="form.status" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm">
                             <el-option value="Activa">Activa</el-option>
-                            <el-option value="Cancelada">Cancelada</el-option>
+                            <el-option value="No tomada">No tomada</el-option>
                             <el-option value="Pagada">Pagada</el-option>  
                         </el-select>
                         <div v-if="form.errors.status" class="text-red-500 text-xs mt-1">{{ form.errors.status }}</div>
@@ -237,28 +250,51 @@ const submit = () => {
                     <div class="px-5 py-3 bg-gray-100 border-b border-gray-200">
                         <h4 class="text-sm font-semibold text-gray-800">Resumen Financiero</h4>
                     </div>
-                    <div class="p-5 space-y-3">
-                        <div class="flex justify-between items-center">
+                    <div class="p-5 space-y-2">
+                        <!-- Prima -->
+                        <div class="flex justify-between items-center py-1">
                             <span class="text-sm text-gray-600">Prima Total</span>
                             <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.premium) }}</span>
                         </div>
-                        <div class="flex justify-between items-center">
+
+                        <!-- ── Agente ─────────────────────────────── -->
+                        <div class="flex justify-between items-center py-1 border-t border-gray-200">
                             <span class="text-sm text-gray-600">− Comisión Agente ({{ form.commission_percentage }}%)</span>
                             <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.agentComm) }}</span>
                         </div>
-                        <div class="flex justify-between items-center">
+                        <div class="flex justify-between items-center py-0.5 pl-4">
+                            <span class="text-xs text-gray-400">− ISR Agente ({{ summary.isrPct }}%)</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.isrAgentAmount) }}</span>
+                        </div>
+                        <div class="flex justify-between items-center py-0.5 pl-4">
+                            <span class="text-xs text-gray-400">− Facturación Agente ({{ summary.billingPct }}%)</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.billingAgentAmount) }}</span>
+                        </div>
+                        <div class="flex justify-between items-center py-0.5 pl-4 border-b border-gray-100">
+                            <span class="text-xs font-medium text-green-700">Subtotal Neto Agente</span>
+                            <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.agentNetComm) }}</span>
+                        </div>
+
+                        <!-- ── Promotor ──────────────────────────── -->
+                        <div class="flex justify-between items-center py-1">
                             <span class="text-sm text-gray-600">− Comisión Promotor ({{ form.promoter_commission_percentage }}%)</span>
                             <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.promoterComm) }}</span>
                         </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-sm text-gray-600">− Retención ISR ({{ form.isr_retention }}%)</span>
-                            <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.isrAmount) }}</span>
+                        <div class="flex justify-between items-center py-0.5 pl-4">
+                            <span class="text-xs text-gray-400">− ISR Promotor ({{ summary.isrPct }}%)</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.isrPromoterAmount) }}</span>
                         </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-sm text-gray-600">− Costo Facturación ({{ form.billing_retention }}%)</span>
-                            <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.billingAmount) }}</span>
+                        <div class="flex justify-between items-center py-0.5 pl-4">
+                            <span class="text-xs text-gray-400">− Facturación Promotor ({{ summary.billingPct }}%)</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.billingPromoterAmount) }}</span>
                         </div>
-                        <div class="border-t border-gray-200 pt-3 mt-3">
+                        <div class="flex justify-between items-center py-0.5 pl-4 border-b border-gray-100">
+                            <span class="text-xs font-medium text-green-700">Subtotal Neto Promotor</span>
+                            <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.promoterNetComm) }}</span>
+                        </div>
+
+                        <!-- Totales -->
+                        <div class="border-t border-gray-200 pt-3 mt-2">
                             <div class="flex justify-between items-center">
                                 <span class="text-sm font-bold text-gray-800">Total Deducciones</span>
                                 <span class="text-sm font-bold text-orange-600">{{ formatCurrency(summary.totalDeductions) }}</span>

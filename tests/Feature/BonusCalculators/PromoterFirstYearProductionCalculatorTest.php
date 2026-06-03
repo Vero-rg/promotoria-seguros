@@ -82,23 +82,23 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
         // ── 6 reclutas para Q4 ─────────────────────────────────────────
         $agents = $this->createRecruits($promoter, 6);
 
-        // ── 4 pólizas Primordial ($400K, todas activas) ────────────────
+        // ── 4 pólizas Primordial ($400K, todas pagadas) ───────────────
         foreach (range(0, 3) as $i) {
             Policy::factory()->primordial()->withPremium(100_000)
                 ->for($agents[$i])
-                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
-        // ── PP extra: $170K activa + $30K cancelada ────────────────────
-        // PP total = $400K + $170K + $30K = $600K
-        // Activo = $400K + $170K = $570K → IRP = 570/600 = 95%
+        // ── PP extra: $170K pagada + $30K no tomada (excluida) ────────
+        // PP total = $400K + $170K = $570K (solo Pagada)
+        // IRP = Pagada / (Pagada + Activa) = 570K / 570K = 100%
         Policy::factory()->vida()->withPremium(170_000)
             ->for($agents[4])
-            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_PAGADA]);
 
         Policy::factory()->vida()->withPremium(30_000)
             ->for($agents[5])
-            ->create(['issue_date' => '2026-09-01', 'status' => Policy::STATUS_CANCELADA]);
+            ->create(['issue_date' => '2026-09-01', 'status' => Policy::STATUS_NO_TOMADA]);
 
         // ── Act ────────────────────────────────────────────────────────
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
@@ -106,9 +106,9 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
         // ── Assert ─────────────────────────────────────────────────────
         $this->assertTrue($result['is_achieved'], 'Debió alcanzarse. Razón: ' . ($result['details']['reason'] ?? '—'));
 
-        $this->assertEquals(132_000.0, $result['amount']);
+        $this->assertEquals(125_400.0, $result['amount']);
         $this->assertEquals(22.0, (float) $result['tier_data']['promoter_percentage']);
-        $this->assertEquals(600_000.0, $result['progress']['current_value']);
+        $this->assertEquals(570_000.0, $result['progress']['current_value']);
     }
 
     /**
@@ -124,25 +124,25 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
 
         $agents = $this->createRecruits($promoter, 6);
 
-        // ── 4 pólizas Primordial ($400K activas) ───────────────────────
+        // ── 4 pólizas Primordial ($400K pagadas) ───────────────────────
         foreach (range(0, 3) as $i) {
             Policy::factory()->primordial()->withPremium(100_000)
                 ->for($agents[$i])
-                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
         // ── Para IRP = 92% con PP = $600K ──────────────────────────────
-        // Activo = 92% de $600K = $552K. Cancelado = $48K.
-        // Ya tenemos $400K activo (Primordial). Necesitamos $152K activo + $48K cancelado.
-        Policy::factory()->vida()->withPremium(152_000)
+        // Pagada = $400K + $200K = $600K. Activa (denominador) = $52K.
+        // IRP = Pagada / (Pagada + Activa) = 600K / 652K = 92.0%
+        Policy::factory()->vida()->withPremium(200_000)
             ->for($agents[4])
-            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_PAGADA]);
 
-        Policy::factory()->vida()->withPremium(48_000)
+        Policy::factory()->vida()->withPremium(52_000)
             ->for($agents[5])
-            ->create(['issue_date' => '2026-09-01', 'status' => Policy::STATUS_CANCELADA]);
+            ->create(['issue_date' => '2026-09-01', 'status' => Policy::STATUS_ACTIVA]);
 
-        // IRP = (400K + 152K) / 600K = 552/600 = 92% ✓
+        // IRP = 600K / 652K = 92.0% ✓
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
@@ -172,7 +172,7 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
         foreach (range(0, 3) as $i) {
             Policy::factory()->primordial()->withPremium(150_000)
                 ->for($agents[$i])
-                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
@@ -194,21 +194,21 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
 
         $agents = $this->createRecruits($promoter, 6);
 
-        // ── Solo 2 pólizas Primordial ($300K activas) ──────────────────
+        // ── Solo 2 pólizas Primordial ($300K pagadas) ──────────────────
         Policy::factory()->primordial()->withPremium(150_000)
             ->for($agents[0])
-            ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
 
         Policy::factory()->primordial()->withPremium(150_000)
             ->for($agents[1])
-            ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
 
         // ── Resto de PP con otras pólizas para cumplir PP e IRP ────────
         Policy::factory()->vida()->withPremium(300_000)
             ->for($agents[2])
-            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_PAGADA]);
 
-        // PP = $600K, activo = $600K → IRP = 100%
+        // PP = $600K (todo Pagada) → IRP = 100%
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
@@ -228,25 +228,25 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
 
         $agents = $this->createRecruits($promoter, 6);
 
-        // ── 4 Primordial ($400K activas) ───────────────────────────────
+        // ── 4 Primordial ($400K pagadas) ──────────────────────────────
         foreach (range(0, 3) as $i) {
             Policy::factory()->primordial()->withPremium(100_000)
                 ->for($agents[$i])
-                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
-        // ── IRP = 89% con PP = $600K ───────────────────────────────────
-        // Activo = 89% de $600K = $534K. Cancelado = $66K.
-        // Ya tenemos $400K activo → necesitamos $134K activo + $66K cancelado.
+        // ── IRP = 89% con PP = $534K ───────────────────────────────────
+        // Pagada = $400K + $134K = $534K. Activa (denominador) = $66K.
+        // IRP = Pagada / (Pagada + Activa) = 534K / 600K = 89% < 91%
         Policy::factory()->vida()->withPremium(134_000)
             ->for($agents[4])
-            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_PAGADA]);
 
         Policy::factory()->vida()->withPremium(66_000)
             ->for($agents[5])
-            ->create(['issue_date' => '2026-09-01', 'status' => Policy::STATUS_CANCELADA]);
+            ->create(['issue_date' => '2026-09-01', 'status' => Policy::STATUS_ACTIVA]);
 
-        // IRP = (400K + 134K) / 600K = 534/600 = 89% < 91%
+        // IRP = 534K / 600K = 89% < 91%
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
@@ -270,14 +270,14 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
 
         $agents = $this->createRecruits($promoter, 6);
 
-        // 3 Primordial ($300K activas)
+        // 3 Primordial ($300K pagadas)
         foreach (range(0, 2) as $i) {
             Policy::factory()->primordial()->withPremium(100_000)
                 ->for($agents[$i])
-                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
-        // IRP = 100% (todo activo), PP = $300K
+        // IRP = 100% (todo Pagada), PP = $300K
         // PP ≥ $255K + IRP ≥ 94% → 14%
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 

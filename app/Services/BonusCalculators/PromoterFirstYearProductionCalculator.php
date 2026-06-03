@@ -62,6 +62,20 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         $pp  = $this->calculatePP($user, $periodStart, $periodEnd);
         $irp = $this->calculateIRP($user, $periodStart, $periodEnd);
 
+        // ── 2b. Requisito de producto (cálculo anticipado) ────────────────
+        //     Se evalúa al inicio para que la barra de Primordial aparezca
+        //     SIEMPRE en el progress_breakdown, incluso en fallos tempranos.
+        $requiredProducts = $scheme->requires_product ?? [];
+        $minProductCount  = (int) ($scheme->min_product_count ?? 0);
+        $primordialCount  = 0;
+        $primordialMet    = true; // Sin requisito → aprobado por defecto
+        if (!empty($requiredProducts) && $minProductCount > 0) {
+            foreach ($requiredProducts as $productType) {
+                $primordialCount = $this->countPoliciesByType($user, $productType, $periodStart, $periodEnd);
+                $primordialMet   = $primordialCount >= $minProductCount;
+            }
+        }
+
         // ── 3. Validar Reglas Globales ──────────────────────────────────
 
         // 3a. IRP mínimo global
@@ -72,6 +86,9 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
                 pp: $pp,
                 irp: $irp,
                 globalMinIrp: $globalMinIrp,
+                primordialCount: $primordialCount,
+                primordialRequired: $minProductCount,
+                primordialMet: $primordialMet,
             );
         }
 
@@ -79,7 +96,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         $quarterlyQuota = $scheme->quarterly_recruits ?? [];
         if (!empty($quarterlyQuota)) {
             $currentQuarter = $this->getCurrentQuarter($periodEnd);
-            $requiredRecruits = $quarterlyQuota[$currentQuarter] ?? 0;
+            $requiredRecruits = $quarterlyQuota["q{$currentQuarter}"] ?? 0;
             if ($requiredRecruits > 0) {
                 $actualRecruits = $this->countYearToDateRecruits($user, $periodEnd);
                 if ($actualRecruits < $requiredRecruits) {
@@ -88,23 +105,9 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
                         pp: $pp,
                         irp: $irp,
                         globalMinIrp: $globalMinIrp,
-                    );
-                }
-            }
-        }
-
-        // 3c. Requisito de producto (requires_product + min_product_count)
-        $requiredProducts = $scheme->requires_product ?? [];
-        $minProductCount  = (int) ($scheme->min_product_count ?? 0);
-        if (!empty($requiredProducts) && $minProductCount > 0) {
-            foreach ($requiredProducts as $productType) {
-                $count = $this->countPoliciesByType($user, $productType, $periodStart, $periodEnd);
-                if ($count < $minProductCount) {
-                    return $this->notAchieved(
-                        reason: "No cumple con el requisito de producto «{$productType}»: requiere {$minProductCount}, tiene {$count}.",
-                        pp: $pp,
-                        irp: $irp,
-                        globalMinIrp: $globalMinIrp,
+                        primordialCount: $primordialCount,
+                        primordialRequired: $minProductCount,
+                        primordialMet: $primordialMet,
                     );
                 }
             }
@@ -123,7 +126,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
             $ppOk  = $pp >= $minPp;
             $irpOk = $irp >= $minIrp && $irp <= $maxIrp;
 
-            if ($ppOk && $irpOk) {
+            if ($ppOk && $irpOk && $primordialMet) {
                 $amount = $this->calculateAmount($tier, $user, $pp);
 
                 return [
@@ -149,6 +152,12 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
                             'target'  => $globalMinIrp,
                             'met'     => $irp >= $globalMinIrp,
                         ],
+                        [
+                            'label'   => 'Pólizas Primordial Requeridas',
+                            'current' => $primordialCount,
+                            'target'  => $minProductCount,
+                            'met'     => $primordialMet,
+                        ],
                     ],
                     'details'     => [
                         'calculator'   => static::class,
@@ -166,6 +175,9 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
             pp: $pp,
             irp: $irp,
             globalMinIrp: $globalMinIrp,
+            primordialCount: $primordialCount,
+            primordialRequired: $minProductCount,
+            primordialMet: $primordialMet,
         );
     }
 
@@ -183,6 +195,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
 
         return (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$start, $end])
+            ->where('status', Policy::STATUS_PAGADA)
             ->sum('premium_amount');
     }
 
@@ -199,15 +212,16 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
 
         $totalPremiums = (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$start, $end])
+            ->where('status', '!=', Policy::STATUS_NO_TOMADA)
             ->sum('premium_amount');
 
-        $activePremiums = (float) Policy::whereIn('agent_id', $agentIds)
+        $pagadaPremiums = (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$start, $end])
-            ->where('status', Policy::STATUS_ACTIVA)
+            ->where('status', Policy::STATUS_PAGADA)
             ->sum('premium_amount');
 
         return $totalPremiums > 0
-            ? round(($activePremiums / $totalPremiums) * 100, 2)
+            ? round(($pagadaPremiums / $totalPremiums) * 100, 2)
             : 0.0;
     }
 
@@ -223,6 +237,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         return Policy::whereIn('agent_id', $agentIds)
             ->whereIn('product_type', $resolvedTypes)
             ->whereBetween('issue_date', [$start, $end])
+            ->where('status', Policy::STATUS_PAGADA)
             ->count();
     }
 
@@ -253,9 +268,18 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         $quarter   = (int) ceil($periodEnd->month / 3);
         $yearStart = $periodEnd->copy()->startOfYear();
         $quarterEnd = $periodEnd->copy()->startOfYear()->addMonths($quarter * 3)->endOfMonth();
+        $currentQuarterStart = $periodEnd->copy()->startOfQuarter();
 
         return $promoter->agents()
             ->whereBetween('created_at', [$yearStart, $quarterEnd])
+            ->where(function ($query) use ($currentQuarterStart) {
+                $query->where('is_active', true)
+                      ->orWhere(function ($q) use ($currentQuarterStart) {
+                          $q->where('is_active', false)
+                            ->whereNotNull('deactivated_at')
+                            ->where('deactivated_at', '>=', $currentQuarterStart);
+                      });
+            })
             ->count();
     }
 
@@ -292,7 +316,35 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         float $pp = 0.0,
         float $irp = 0.0,
         float $globalMinIrp = 0.0,
+        int $primordialCount = 0,
+        int $primordialRequired = 0,
+        bool $primordialMet = true,
     ): array {
+        $breakdown = [
+            [
+                'label'   => 'Producción Primaria — PP ($)',
+                'current' => round($pp, 2),
+                'target'  => 0,
+                'met'     => $pp > 0,
+            ],
+            [
+                'label'   => 'Índice de Retención — IRP (%)',
+                'current' => round($irp, 2),
+                'target'  => $globalMinIrp,
+                'met'     => $globalMinIrp > 0 ? $irp >= $globalMinIrp : true,
+            ],
+        ];
+
+        // Agregar barra de Primordial si el esquema lo requiere
+        if ($primordialRequired > 0) {
+            $breakdown[] = [
+                'label'   => 'Pólizas Primordial Requeridas',
+                'current' => $primordialCount,
+                'target'  => $primordialRequired,
+                'met'     => $primordialMet,
+            ];
+        }
+
         return [
             'is_achieved' => false,
             'amount'      => 0.0,
@@ -303,20 +355,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
                 'current_value'  => round($pp, 2),
                 'required_value' => 0.0,
             ],
-            'progress_breakdown' => [
-                [
-                    'label'   => 'Producción Primaria — PP ($)',
-                    'current' => round($pp, 2),
-                    'target'  => 0,
-                    'met'     => $pp > 0,
-                ],
-                [
-                    'label'   => 'Índice de Retención — IRP (%)',
-                    'current' => round($irp, 2),
-                    'target'  => $globalMinIrp,
-                    'met'     => $globalMinIrp > 0 ? $irp >= $globalMinIrp : true,
-                ],
-            ],
+            'progress_breakdown' => $breakdown,
             'details' => [
                 'reason' => $reason,
                 'pp'     => round($pp, 2),

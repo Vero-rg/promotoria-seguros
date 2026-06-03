@@ -81,22 +81,22 @@ const fetchWithDateRange = () => {
 };
 
 // ─── Botón Histórico ──────────────────────────────
-const showHistorical = () => {
-    const start = props.entity.entry_date || props.entity.created_at?.split('T')[0] || '';
-    const end = new Date().toISOString().split('T')[0];
+// const showHistorical = () => {
+//     const start = props.entity.entry_date || props.entity.created_at?.split('T')[0] || '';
+//     const end = new Date().toISOString().split('T')[0];
 
-    dateRange.value = [start, end];
+//     dateRange.value = [start, end];
 
-    const routeName = props.type === 'promoter' ? 'promoters.show' : 'agents.show';
-    router.get(route(routeName, props.entity.id), {
-        start_date: start,
-        end_date: end,
-    }, {
-        preserveState: true,
-        preserveScroll: true,
-        replace: true,
-    });
-};
+//     const routeName = props.type === 'promoter' ? 'promoters.show' : 'agents.show';
+//     router.get(route(routeName, props.entity.id), {
+//         start_date: start,
+//         end_date: end,
+//     }, {
+//         preserveState: true,
+//         preserveScroll: true,
+//         replace: true,
+//     });
+// };
 
 // ─── Filtros Rápidos por Trimestre ────────────────
 const currentYear = new Date().getFullYear();
@@ -212,14 +212,14 @@ const toggleAgent = (agentId) => {
                     </button>
                 </div>
 
-                <button
+                <!-- <button
                     type="button"
                     @click="showHistorical"
                     class="inline-flex items-center px-3 py-1.5 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
                 >
                     <Clock class="w-4 h-4 mr-1.5" />
                     Histórico
-                </button>
+                </button> -->
             </div>
 
             <!-- ═══════════ AGENTE ═══════════ -->
@@ -390,11 +390,15 @@ const toggleAgent = (agentId) => {
                                             <p class="text-xs text-gray-400 mb-2 uppercase tracking-wider">Últimas pólizas</p>
                                             <div class="space-y-2">
                                                 <div v-for="pol in agent.policies.slice(0, 5)" :key="pol.id" class="flex items-center justify-between bg-white rounded-lg px-3 py-2 text-xs border border-gray-100">
-                                                    <div>
-                                                        <span class="font-medium text-gray-900">{{ pol.client_name || '—' }}</span>
-                                                        <span class="text-gray-400 ml-2">{{ productLabels[pol.product_type] || pol.product_type }}</span>
+                                                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                                                        <span class="font-medium text-gray-900 truncate">{{ pol.client_name || '—' }}</span>
+                                                        <span class="text-gray-400">{{ productLabels[pol.product_type] || pol.product_type }}</span>
+                                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                                            :class="pol.status === 'Pagada' ? 'bg-blue-100 text-blue-700' : pol.status === 'No tomada' ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">
+                                                            {{ pol.status || '—' }}
+                                                        </span>
                                                     </div>
-                                                    <div class="text-right">
+                                                    <div class="text-right flex-shrink-0 ml-2">
                                                         <span class="text-gray-600">{{ formatDate(pol.issue_date) }}</span>
                                                         <span class="ml-2 font-medium text-green-700">{{ formatCurrency(pol.commission_amount) }}</span>
                                                     </div>
@@ -463,6 +467,7 @@ const toggleAgent = (agentId) => {
                                                 <th class="py-2 text-left text-gray-400 font-medium">Cliente</th>
                                                 <th class="py-2 text-left text-gray-400 font-medium">Producto</th>
                                                 <th class="py-2 text-right text-gray-400 font-medium">Prima</th>
+                                                <th class="py-2 text-center text-gray-400 font-medium">Estatus</th>
                                                 <th class="py-2 text-right text-gray-400 font-medium">% Com.</th>
                                                 <th class="py-2 text-right text-gray-400 font-medium">Comisión</th>
                                             </tr>
@@ -472,6 +477,12 @@ const toggleAgent = (agentId) => {
                                                 <td class="py-2 text-gray-900">{{ pol.client_name || '—' }}</td>
                                                 <td class="py-2 text-gray-600">{{ productLabels[pol.product_type] || pol.product_type }}</td>
                                                 <td class="py-2 text-right text-gray-700">{{ formatCurrency(pol.premium_amount) }}</td>
+                                                <td class="py-2 text-center">
+                                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                                        :class="pol.status === 'Pagada' ? 'bg-blue-100 text-blue-700' : pol.status === 'No tomada' ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">
+                                                        {{ pol.status || '—' }}
+                                                    </span>
+                                                </td>
                                                 <td class="py-2 text-right text-gray-500">{{ pol.percentage }}%</td>
                                                 <td class="py-2 text-right">
                                                     <span class="font-medium text-emerald-700">{{ formatCurrency(pol.commission) }}</span>
