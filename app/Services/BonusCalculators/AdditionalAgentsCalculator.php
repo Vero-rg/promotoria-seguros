@@ -102,6 +102,7 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
                             'current' => $dependencyMet ? 1 : 0,
                             'target'  => 1,
                             'met'     => $dependencyMet,
+                            '_isDependency' => true,
                         ],
                         [
                             'label'   => 'Agentes Activos Calificados',
