@@ -59,4 +59,11 @@ class PolicyFactory extends Factory
             'status' => Policy::STATUS_NO_TOMADA,
         ]);
     }
+
+    public function pagada(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => Policy::STATUS_PAGADA,
+        ]);
+    }
 }

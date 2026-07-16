@@ -55,16 +55,45 @@ class AgentController extends Controller
         // 1. Cantidad de pólizas vendidas
         $policiesCount = $policies->count();
 
-        // 2. Comisiones generadas (esquema base de 3 productos)
-        //    Obtenemos el mapa de comisiones desde PolicyController
+        // 2. Comisiones generadas con desglose secuencial ISR → facturación
         $productCommissionMap = app(\App\Http\Controllers\PolicyController::class)->getProductCommissionMap();
-        $totalCommissions = $policies->sum(function ($policy) use ($productCommissionMap) {
+
+        $agentGross   = 0;
+        $agentIsr     = 0;
+        $agentBilling = 0;
+        $agentNet     = 0;
+
+        foreach ($policies as $policy) {
+            // Solo pólizas Pagadas generan comisión
+            if ($policy->status !== \App\Models\Policy::STATUS_PAGADA) continue;
+
             $map = $productCommissionMap[$policy->product_type] ?? null;
             if ($map) {
-                return (float) $policy->premium_amount * ($map['agent_percentage'] / 100);
+                $gross = (float) $policy->premium_amount * ($map['agent_percentage'] / 100);
+            } else {
+                $gross = (float) $policy->commission_amount;
             }
-            return (float) $policy->commission_amount;
-        });
+
+            // Per-policy sequential ISR → billing (matching Policy::agentNetAmount)
+            $isrPct   = (float) ($policy->isr_retention ?? 0);
+            $billPct  = (float) ($policy->billing_retention ?? 0);
+            $isr      = $gross * ($isrPct / 100);
+            $afterIsr = $gross - $isr;
+            $billing  = $afterIsr * ($billPct / 100);
+            $net      = $afterIsr - $billing;
+
+            $agentGross   += $gross;
+            $agentIsr     += $isr;
+            $agentBilling += $billing;
+            $agentNet     += $net;
+        }
+
+        $commissionBreakdown = [
+            'gross'   => round($agentGross, 2),
+            'isr'     => round($agentIsr, 2),
+            'billing' => round($agentBilling, 2),
+            'net'     => round($agentNet, 2),
+        ];
 
         // 3. Bonos: Usar el Orquestador de Bonos (Strategy Pattern)
         //    El orquestador expande automáticamente el periodo para bonos
@@ -89,7 +118,7 @@ class AgentController extends Controller
             'type' => 'agent',
             'stats' => [
                 'policies_count' => $policiesCount,
-                'total_commissions' => round($totalCommissions, 2),
+                'commission_breakdown' => $commissionBreakdown,
                 'bonuses' => $bonusesProgress,
             ],
             'filters' => [

@@ -71,8 +71,9 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
     /**
      * 🟢 Escenario feliz: Agente con $150,000 PCA, 1 póliza Vida y 1 Primordial.
      *
+     * PCA real: (100,000 − 1,500) + (50,000 − 1,500) = 147,000
      * Debe alcanzar el Tier 1 (min_pca = 130,000) y recibir 10% sobre PCA.
-     * Monto esperado: $150,000 × 10% = $15,000.
+     * Monto esperado: $147,000 × 10% = $14,700.
      */
     public function test_agent_receives_tier_one_bonus_when_all_conditions_are_met(): void
     {
@@ -84,12 +85,14 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         // 1 póliza Vida con $100,000 + 1 Primordial con $50,000 → PCA = $150,000
         Policy::factory()
             ->vida()
+            ->pagada()
             ->withPremium(100_000)
             ->for($agent)
             ->create(['issue_date' => '2026-02-15']);
 
         Policy::factory()
             ->primordial()
+            ->pagada()
             ->withPremium(50_000)
             ->for($agent)
             ->create(['issue_date' => '2026-03-10']);
@@ -102,7 +105,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         // ── Assert ─────────────────────────────────────────────────────
         $this->assertTrue($result['is_achieved'], 'El bono debió alcanzarse. Razón: ' . ($result['details']['reason'] ?? '—'));
 
-        $this->assertEquals(15_000.0, $result['amount']);
+        $this->assertEquals(14_700.0, $result['amount']);
         // Tier 1 es el de menor min_pca, queda en último lugar tras orden descendente
         $this->assertEquals(2, $result['tier_index'], 'Debió tomar el Tier 1 (índice 2, el último tras sort DESC).');
 
@@ -114,14 +117,15 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         );
 
         // Progreso
-        $this->assertEquals(150_000.0, $result['progress']['current_value']);
+        $this->assertEquals(147_000.0, $result['progress']['current_value']);
         $this->assertEquals(self::TIER_1_MIN_PCA, $result['progress']['required_value']);
     }
 
     /**
      * 🟢 Agente con $250,000 PCA y ambos productos → debe alcanzar Tier 2.
      *
-     * Monto esperado: $250,000 × 14% = $35,000.
+     * PCA real: (150,000 − 1,500) + (100,000 − 1,500) = 247,000
+     * Monto esperado: $247,000 × 14% = $34,580.
      */
     public function test_agent_receives_tier_two_bonus_with_higher_pca(): void
     {
@@ -129,15 +133,15 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $agent  = Agent::factory()->create(['created_at' => '2026-01-01']);
         $period = $this->defaultPeriod();
 
-        Policy::factory()->vida()->withPremium(150_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(150_000)->for($agent)
             ->create(['issue_date' => '2026-02-01']);
-        Policy::factory()->primordial()->withPremium(100_000)->for($agent)
+        Policy::factory()->primordial()->pagada()->withPremium(100_000)->for($agent)
             ->create(['issue_date' => '2026-02-15']);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertTrue($result['is_achieved']);
-        $this->assertEquals(35_000.0, $result['amount']);
+        $this->assertEquals(34_580.0, $result['amount']);
         $this->assertEquals(1, $result['tier_index'], 'Debió tomar el Tier 2 (índice 1, el segundo tras sort DESC).');
         $this->assertEquals(
             self::TIER_2_AGENT_PERCENTAGE,
@@ -160,16 +164,22 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $period = $this->defaultPeriod();
 
         // Solo 2 pólizas Vida — sin Primordial
-        Policy::factory()->vida()->withPremium(200_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(200_000)->for($agent)
             ->create(['issue_date' => '2026-03-01']);
-        Policy::factory()->vida()->withPremium(100_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(100_000)->for($agent)
             ->create(['issue_date' => '2026-04-01']);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertFalse($result['is_achieved'], 'Debió fallar por falta de producto Primordial.');
         $this->assertEquals(0.0, $result['amount']);
-        $this->assertStringContainsString('Primordial', $result['details']['reason'] ?? '');
+
+        // Verificar que el breakdown muestre Primordial como no cumplido
+        $breakdown = $result['progress_breakdown'] ?? [];
+        $primordialBar = collect($breakdown)->first(fn($b) => str_contains($b['label'] ?? '', 'Primordial'));
+        $this->assertNotNull($primordialBar, 'Debe existir barra de Primordial en el breakdown.');
+        $this->assertEquals(0, $primordialBar['current'], 'Conteo de Primordial debe ser 0.');
+        $this->assertFalse($primordialBar['met'], 'Primordial no debe estar cumplido.');
     }
 
     /**
@@ -182,9 +192,9 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $agent  = Agent::factory()->create(['created_at' => '2026-01-01']);
         $period = $this->defaultPeriod();
 
-        Policy::factory()->vida()->withPremium(60_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(60_000)->for($agent)
             ->create(['issue_date' => '2026-02-01']);
-        Policy::factory()->primordial()->withPremium(40_000)->for($agent)
+        Policy::factory()->primordial()->pagada()->withPremium(40_000)->for($agent)
             ->create(['issue_date' => '2026-03-01']);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
@@ -193,7 +203,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $this->assertEquals(0.0, $result['amount']);
 
         // El progreso debe mostrar el valor real vs lo requerido
-        $this->assertEquals(100_000.0, $result['progress']['current_value']);
+        $this->assertEquals(97_000.0, $result['progress']['current_value']);
         $this->assertEquals(self::TIER_1_MIN_PCA, $result['progress']['required_value']);
     }
 
@@ -210,7 +220,13 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertFalse($result['is_achieved']);
-        $this->assertStringContainsString('Vida', $result['details']['reason'] ?? '');
+
+        // Verificar que el breakdown muestre Vida como no cumplido
+        $breakdown = $result['progress_breakdown'] ?? [];
+        $vidaBar = collect($breakdown)->first(fn($b) => str_contains($b['label'] ?? '', 'Vida'));
+        $this->assertNotNull($vidaBar, 'Debe existir barra de Vida en el breakdown.');
+        $this->assertEquals(0, $vidaBar['current'], 'Conteo de Vida debe ser 0.');
+        $this->assertFalse($vidaBar['met'], 'Vida no debe estar cumplido.');
     }
 
     /**
@@ -222,9 +238,9 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $agent  = Agent::factory()->create(['created_at' => '2023-12-01']); // 2.5 años atrás
         $period = $this->defaultPeriod();
 
-        Policy::factory()->vida()->withPremium(500_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(500_000)->for($agent)
             ->create(['issue_date' => '2026-01-15']);
-        Policy::factory()->primordial()->withPremium(500_000)->for($agent)
+        Policy::factory()->primordial()->pagada()->withPremium(500_000)->for($agent)
             ->create(['issue_date' => '2026-01-20']);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
@@ -254,6 +270,9 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
 
     /**
      * 🟢 El agente tiene más de 1 póliza por producto requerido → igual aplica.
+     *
+     * PCA real: 5 pólizas, cada una con −$1,500 → $152,500
+     * Monto esperado: $152,500 × 10% = $15,250.
      */
     public function test_agent_with_extra_policies_still_qualifies(): void
     {
@@ -262,52 +281,61 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $period = $this->defaultPeriod();
 
         // 3 Vida + 2 Primordial — excede el mínimo
-        Policy::factory()->vida()->withPremium(50_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(50_000)->for($agent)
             ->create(['issue_date' => '2026-02-01']);
-        Policy::factory()->vida()->withPremium(40_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(40_000)->for($agent)
             ->create(['issue_date' => '2026-02-15']);
-        Policy::factory()->vida()->withPremium(30_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(30_000)->for($agent)
             ->create(['issue_date' => '2026-03-01']);
-        Policy::factory()->primordial()->withPremium(20_000)->for($agent)
+        Policy::factory()->primordial()->pagada()->withPremium(20_000)->for($agent)
             ->create(['issue_date' => '2026-03-15']);
-        Policy::factory()->primordial()->withPremium(20_000)->for($agent)
+        Policy::factory()->primordial()->pagada()->withPremium(20_000)->for($agent)
             ->create(['issue_date' => '2026-04-01']);
         // PCA total = 160,000 → Tier 1
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertTrue($result['is_achieved']);
-        $this->assertEquals(16_000.0, $result['amount']); // 160,000 × 10%
+        $this->assertEquals(15_250.0, $result['amount']); // 152,500 × 10%
     }
 
     /**
-     * 🔴 Pólizas fuera del primer año del agente NO cuentan para el PCA.
+     * 🔴 Pólizas con issue_date fuera del periodo de evaluación NO cuentan.
+     *
+     * Comportamiento trimestral: solo se consideran pólizas cuya fecha
+     * de emisión cae dentro del rango [periodStart, periodEnd].
      */
-    public function test_policies_outside_first_year_are_excluded_from_pca(): void
+    public function test_policies_outside_evaluation_period_are_excluded(): void
     {
         $scheme = $this->createSchemeWithTiers();
-        $agent  = Agent::factory()->create(['created_at' => '2025-08-01']);
-        $period = $this->defaultPeriod();
+        $agent  = Agent::factory()->create(['created_at' => '2026-01-01']);
+        // Periodo: Q1 2026 (enero-marzo)
+        $period = [
+            'start' => Carbon::parse('2026-01-01'),
+            'end'   => Carbon::parse('2026-03-31'),
+        ];
 
-        // Póliza en el primer año (dentro del año de contratación): $80,000
-        Policy::factory()->vida()->withPremium(80_000)->for($agent)
-            ->create(['issue_date' => '2025-11-01']);
+        // Póliza DENTRO del periodo: $80,000 → PCA = $78,500
+        Policy::factory()->vida()->pagada()->withPremium(80_000)->for($agent)
+            ->create(['issue_date' => '2026-02-15']);
 
-        // Póliza fuera del primer año (después de 2026-08-01): $200,000 — NO debe contar para PCA
-        // Pero SÍ cuenta para el requisito global de producto (Primordial existe)
-        Policy::factory()->primordial()->withPremium(200_000)->for($agent)
-            ->create(['issue_date' => '2026-09-01']);
+        // Póliza FUERA del periodo (abril): $200,000 — NO debe contar
+        Policy::factory()->primordial()->pagada()->withPremium(200_000)->for($agent)
+            ->create(['issue_date' => '2026-04-01']);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
-        // PCA = $80,000 < Tier 1 (130,000) → falla
+        // PCA = $78,500 (solo la póliza de febrero). No alcanza Tier 1 ($130,000).
         $this->assertFalse($result['is_achieved']);
-        $this->assertEquals(80_000.0, $result['progress']['current_value']);
+        $this->assertEquals(78_500.0, $result['progress']['current_value']);
     }
 
     /**
      * 🟢 Los tiers se evalúan en orden: si el agente califica para Tier 3,
      *    debe tomar ese (no el Tier 1 o 2).
+     *
+     * PCA real: (500,000 − 1,500) + (300,000 − 1,500) = 797,000
+     * Monto esperado: $797,000 × 36% = $286,920.
      */
     public function test_agent_gets_highest_qualifying_tier(): void
     {
@@ -316,16 +344,16 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $period = $this->defaultPeriod();
 
         // PCA = $800,000 → debe calificar para Tier 3
-        Policy::factory()->vida()->withPremium(500_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(500_000)->for($agent)
             ->create(['issue_date' => '2026-02-01']);
-        Policy::factory()->primordial()->withPremium(300_000)->for($agent)
+        Policy::factory()->primordial()->pagada()->withPremium(300_000)->for($agent)
             ->create(['issue_date' => '2026-03-01']);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertTrue($result['is_achieved']);
         $this->assertEquals(0, $result['tier_index'], 'Debió tomar el Tier 3 (índice 0, el primero tras sort DESC).');
-        $this->assertEquals(288_000.0, $result['amount']); // 800,000 × 36%
+        $this->assertEquals(286_920.0, $result['amount']); // 797,000 × 36%
         $this->assertEquals(
             self::TIER_3_AGENT_PERCENTAGE,
             (float) $result['tier_data']['agent_percentage']

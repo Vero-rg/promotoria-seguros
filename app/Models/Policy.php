@@ -121,10 +121,11 @@ class Policy extends Model
         $isrPct    = (float) ($this->isr_retention ?? 0);
         $billPct   = (float) ($this->billing_retention ?? 0);
 
-        $isr     = $agentComm * ($isrPct / 100);
-        $billing = $agentComm * ($billPct / 100);
+        $isr           = $agentComm * ($isrPct / 100);
+        $afterIsr      = $agentComm - $isr;
+        $billing       = $afterIsr * ($billPct / 100);
 
-        return round($agentComm - $isr - $billing, 2);
+        return round($afterIsr - $billing, 2);
     }
 
     /**
@@ -143,10 +144,11 @@ class Policy extends Model
         $isrPct       = (float) ($this->isr_retention ?? 0);
         $billPct      = (float) ($this->billing_retention ?? 0);
 
-        $isr     = $promoterComm * ($isrPct / 100);
-        $billing = $promoterComm * ($billPct / 100);
+        $isr           = $promoterComm * ($isrPct / 100);
+        $afterIsr      = $promoterComm - $isr;
+        $billing       = $afterIsr * ($billPct / 100);
 
-        return round($promoterComm - $isr - $billing, 2);
+        return round($afterIsr - $billing, 2);
     }
 
     /**

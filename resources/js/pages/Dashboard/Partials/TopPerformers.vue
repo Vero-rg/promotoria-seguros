@@ -12,6 +12,7 @@ defineProps<{
         policies_count: number;
         total_volume: number;
         total_commission: number;
+        commission_breakdown?: { gross: number; isr: number; billing: number; net: number };
         bonus_names: string[];
         bonus_details: Array<{ name: string; amount: number; progress_label: string }>;
         sparkline: number[];
@@ -26,6 +27,7 @@ defineProps<{
         bonus_names: string[];
         bonus_details: Array<{ name: string; amount: number; progress_label: string }>;
         total_commission: number;
+        commission_breakdown?: { gross: number; isr: number; billing: number; net: number };
     }>;
 }>();
 
@@ -191,13 +193,30 @@ const getMedalClass = (idx: number) => {
 
                     <!-- Content -->
                     <div class="px-6 py-5 space-y-5">
-                        <!-- Comisiones -->
+                        <!-- Comisiones con desglose -->
                         <div class="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100/50">
-                            <div class="flex items-center space-x-2 mb-1">
+                            <div class="flex items-center space-x-2 mb-3">
                                 <DollarSign class="w-4 h-4 text-emerald-600" />
                                 <span class="text-sm font-medium text-emerald-800">Comisiones Generadas</span>
                             </div>
-                            <p class="text-2xl font-bold text-emerald-700 ml-6">{{ formatCurrency(selectedAgent.total_commission) }}</p>
+                            <div class="space-y-1 ml-6">
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-500">Comisión total generada</span>
+                                    <span class="font-medium text-gray-700">{{ formatCurrency(selectedAgent.commission_breakdown?.gross || selectedAgent.total_commission) }}</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-400">− Retención de ISR</span>
+                                    <span class="font-medium text-red-500">−{{ formatCurrency(selectedAgent.commission_breakdown?.isr || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-400">− Costo de facturación</span>
+                                    <span class="font-medium text-red-500">−{{ formatCurrency(selectedAgent.commission_breakdown?.billing || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between text-base font-bold pt-2 mt-1 border-t border-emerald-200">
+                                    <span class="text-emerald-800">Total neto</span>
+                                    <span class="text-emerald-700 text-xl">{{ formatCurrency(selectedAgent.commission_breakdown?.net || selectedAgent.total_commission) }}</span>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Bonos Ganados -->
@@ -298,14 +317,31 @@ const getMedalClass = (idx: number) => {
                             </div>
                         </div>
 
-                        <!-- Comisiones del Promotor -->
+                        <!-- Comisiones del Promotor con desglose -->
                         <div class="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100/50">
-                            <div class="flex items-center space-x-2 mb-1">
+                            <div class="flex items-center space-x-2 mb-3">
                                 <DollarSign class="w-4 h-4 text-emerald-600" />
                                 <span class="text-sm font-medium text-emerald-800">Comisiones por Ventas del Equipo</span>
                             </div>
-                            <p class="text-2xl font-bold text-emerald-700 ml-6">{{ formatCurrency(selectedPromoter.total_commission || 0) }}</p>
-                            <p class="text-xs text-emerald-600/70 ml-6 mt-1">Basado en el esquema de comisiones activo</p>
+                            <div class="space-y-1 ml-6">
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-500">Comisión total generada</span>
+                                    <span class="font-medium text-gray-700">{{ formatCurrency(selectedPromoter.commission_breakdown?.gross || selectedPromoter.total_commission || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-400">− Retención de ISR</span>
+                                    <span class="font-medium text-red-500">−{{ formatCurrency(selectedPromoter.commission_breakdown?.isr || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-400">− Costo de facturación</span>
+                                    <span class="font-medium text-red-500">−{{ formatCurrency(selectedPromoter.commission_breakdown?.billing || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between text-base font-bold pt-2 mt-1 border-t border-emerald-200">
+                                    <span class="text-emerald-800">Total neto</span>
+                                    <span class="text-emerald-700 text-xl">{{ formatCurrency(selectedPromoter.commission_breakdown?.net || selectedPromoter.total_commission || 0) }}</span>
+                                </div>
+                            </div>
+                            <p class="text-xs text-emerald-600/70 ml-6 mt-2">Basado en el esquema de comisiones activo</p>
                         </div>
 
                         <!-- Link a perfil -->

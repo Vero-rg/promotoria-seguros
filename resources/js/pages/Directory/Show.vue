@@ -236,9 +236,26 @@ const toggleAgent = (agentId) => {
                     </div>
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-start space-x-4">
                         <div class="p-3 bg-green-50 rounded-xl"><DollarSign class="w-6 h-6 text-green-600" /></div>
-                        <div>
-                            <p class="text-sm text-gray-500">Comisiones Generadas</p>
-                            <p class="text-2xl font-bold text-gray-900">{{ formatCurrency(stats.total_commissions) }}</p>
+                        <div class="flex-1">
+                            <p class="text-sm text-gray-500 mb-1">Comisiones Generadas</p>
+                            <div class="space-y-0.5">
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-gray-400">Comisión total generada</span>
+                                    <span class="font-medium text-gray-700">{{ formatCurrency(stats.commission_breakdown?.gross || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-gray-400">− Retención de isr</span>
+                                    <span class="font-medium text-red-600">−{{ formatCurrency(stats.commission_breakdown?.isr || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-gray-400">− Costo de facturación</span>
+                                    <span class="font-medium text-red-600">−{{ formatCurrency(stats.commission_breakdown?.billing || 0) }}</span>
+                                </div>
+                                <div class="flex justify-between text-sm font-bold pt-1 border-t border-gray-100">
+                                    <span class="text-gray-700">Total neto</span>
+                                    <span class="text-emerald-700">{{ formatCurrency(stats.commission_breakdown?.net || 0) }}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-start space-x-4">
@@ -266,6 +283,7 @@ const toggleAgent = (agentId) => {
                                         <th class="px-5 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Cliente</th>
                                         <th class="px-5 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Producto</th>
                                         <th class="px-5 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Fecha</th>
+                                        <th class="px-5 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Estatus</th>
                                         <th class="px-5 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Comisión</th>
                                     </tr>
                                 </thead>
@@ -274,6 +292,12 @@ const toggleAgent = (agentId) => {
                                         <td class="px-5 py-3 text-sm text-gray-900">{{ policy.client_name || '—' }}</td>
                                         <td class="px-5 py-3 text-sm text-gray-600">{{ productLabels[policy.product_type] || policy.product_type || '—' }}</td>
                                         <td class="px-5 py-3 text-sm text-gray-500">{{ formatDate(policy.issue_date) }}</td>
+                                        <td class="px-5 py-3 text-sm text-center">
+                                            <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                                :class="policy.status === 'Pagada' ? 'bg-blue-100 text-blue-700' : policy.status === 'No tomada' ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">
+                                                {{ policy.status || '—' }}
+                                            </span>
+                                        </td>
                                         <td class="px-5 py-3 text-sm text-right">
                                             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                                 {{ formatCurrency(policy.commission_amount) }}
@@ -430,32 +454,53 @@ const toggleAgent = (agentId) => {
                                 <DollarSign class="w-4 h-4 mr-2 text-emerald-600" />
                                 Comisiones por Ventas del Equipo
                             </h3>
-                            <span class="text-sm font-bold text-emerald-700">
-                                Total: {{ formatCurrency(stats.total_promoter_commission) }}
-                            </span>
+                            <div class="flex items-center space-x-6 text-xs">
+                                <span class="text-gray-500">Total: <span class="font-medium text-gray-700">{{ formatCurrency(stats.team_commission_breakdown?.gross || 0) }}</span></span>
+                                <span class="text-red-500">ISR: −{{ formatCurrency(stats.team_commission_breakdown?.isr || 0) }}</span>
+                                <span class="text-red-500">Facturación: −{{ formatCurrency(stats.team_commission_breakdown?.billing || 0) }}</span>
+                                <span class="text-emerald-700 font-bold">Neto: {{ formatCurrency(stats.team_commission_breakdown?.net || 0) }}</span>
+                            </div>
                         </div>
-                        <p v-if="stats.commission_scheme_name" class="text-xs text-gray-400 mt-1">
+                    </div>
+
+                    <p v-if="stats.commission_scheme_name" class="text-xs text-gray-400 mt-1">
                             Esquema: {{ stats.commission_scheme_name }}
                         </p>
-                    </div>
 
                     <div class="divide-y divide-gray-50">
                         <div v-for="(agentComm, acIdx) in stats.commissions" :key="acIdx">
                             <!-- Cabecera del Agente -->
-                            <div class="px-5 py-4 flex items-center justify-between bg-gray-50/30">
-                                <div class="flex items-center space-x-3">
-                                    <div v-if="getPhotoUrl(agentComm.photo)" class="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
-                                        <img :src="getPhotoUrl(agentComm.photo)" class="w-full h-full object-cover" />
+                            <div class="px-5 py-4 bg-gray-50/30">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center space-x-3">
+                                        <div v-if="getPhotoUrl(agentComm.photo)" class="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
+                                            <img :src="getPhotoUrl(agentComm.photo)" class="w-full h-full object-cover" />
+                                        </div>
+                                        <div v-else class="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center text-gray-500 font-bold text-xs flex-shrink-0">
+                                            {{ getInitials(agentComm.agent_name) }}
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">{{ agentComm.agent_name }}</p>
+                                            <p class="text-xs text-gray-400">{{ agentComm.policies_count }} póliza(s)</p>
+                                        </div>
                                     </div>
-                                    <div v-else class="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center text-gray-500 font-bold text-xs flex-shrink-0">
-                                        {{ getInitials(agentComm.agent_name) }}
+                                    <span class="text-sm font-bold text-emerald-700">{{ formatCurrency(agentComm.total_net) }}</span>
+                                </div>
+                                <!-- Desglose del agente -->
+                                <div class="mt-2 ml-11 space-y-0.5">
+                                    <div class="flex justify-between text-xs">
+                                        <span class="text-gray-400">Comisión total generada</span>
+                                        <span class="font-medium text-gray-600">{{ formatCurrency(agentComm.total_gross) }}</span>
                                     </div>
-                                    <div>
-                                        <p class="text-sm font-medium text-gray-900">{{ agentComm.agent_name }}</p>
-                                        <p class="text-xs text-gray-400">{{ agentComm.policies_count }} póliza(s)</p>
+                                    <div class="flex justify-between text-xs">
+                                        <span class="text-gray-400">− Retención de isr</span>
+                                        <span class="font-medium text-red-500">−{{ formatCurrency(agentComm.total_isr) }}</span>
+                                    </div>
+                                    <div class="flex justify-between text-xs">
+                                        <span class="text-gray-400">− Costo de facturación</span>
+                                        <span class="font-medium text-red-500">−{{ formatCurrency(agentComm.total_billing) }}</span>
                                     </div>
                                 </div>
-                                <span class="text-sm font-bold text-emerald-700">{{ formatCurrency(agentComm.total_commission) }}</span>
                             </div>
 
                             <!-- Detalle de pólizas del agente -->

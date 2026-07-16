@@ -11,19 +11,26 @@ use App\Models\SchemeVersion;
 use Carbon\Carbon;
 
 /**
- * Calcula el Bono por Producción de 1.er Año — Agente.
+ * Calcula el Bono por Producción de 1.er Año Vida Trimestral — Agente.
  *
- * INVARIANTE DE NEGOCIO: "Producción de 1.er año" SIEMPRE es un Bono, NUNCA una comisión.
+ * INVARIANTE DE NEGOCIO:
+ *   - "Producción de 1.er año" SIEMPRE es un Bono, NUNCA una comisión.
+ *   - Se evalúa CADA TRIMESTRE de forma independiente (se resetea entre trimestres).
+ *   - Solo aplica a agentes que estén dentro de su primer año desde contratación.
  *
- * Evalúa si un agente, en su primer año desde la contratación, alcanzó
- * un PCA mínimo (Prima Cobrada Anual).
+ * REGLAS POR TRIMESTRE:
+ *   1. PCA trimestral ≥ min_pca del tier (PCA = Σ(premium_amount − $1,500) por póliza Pagada).
+ *   2. Requisitos de producto del esquema (requires_product): cada tipo con su min_count.
+ *   3. Si ambas condiciones se cumplen → bono desbloqueado para ESE trimestre.
+ *   4. El monto del bono = PCA_trimestral × agent_percentage del tier alcanzado.
  *
  * Condiciones leídas de $tier->conditions:
- *   - min_pca  (float)  PCA mínimo requerido en el primer año ($).
+ *   - min_pca  (float)  PCA mínimo requerido en el trimestre ($).
  */
 class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
 {
     use ProductAliasResolver;
+
     /**
      * {@inheritDoc}
      */
@@ -33,11 +40,28 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         Carbon $periodStart,
         Carbon $periodEnd
     ): array {
-        // Solo aplica a Agents
+        // ── Solo aplica a Agents ──────────────────────────────────────
         if ($user instanceof Promoter) {
             return $this->notAchieved('El Bono de Producción de 1.er Año (Agente) solo aplica a Agentes.');
         }
 
+        // ── Validar que el agente esté en su primer año ────────────────
+        $firstYearEnd = $user->created_at
+            ? $user->created_at->copy()->addYear()
+            : null;
+
+        if ($firstYearEnd === null) {
+            return $this->notAchieved('El agente no tiene fecha de registro.');
+        }
+
+        // Solo excluir si el periodo COMPLETO está fuera del primer año
+        if ($periodStart->greaterThan($firstYearEnd)) {
+            return $this->notAchieved(
+                reason: 'El agente superó su primer año el ' . $firstYearEnd->format('d/m/Y') . '.',
+            );
+        }
+
+        // ── Versión activa ────────────────────────────────────────────
         $version = $this->resolveActiveVersion($scheme, $periodStart, $periodEnd);
         if ($version === null) {
             return $this->notAchieved('No hay versión vigente del esquema para el periodo solicitado.');
@@ -46,46 +70,51 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         $tiers = $version->tiers()
             ->get()
             ->sortByDesc(function (SchemeTier $tier) {
-                // Ordenar por min_pca descendente: el tier más exigente primero
                 return (float) ($tier->conditions['min_pca'] ?? 0);
             })
-            ->values(); // Reindexar para que tier_index sea 0, 1, 2…
+            ->values();
+
         if ($tiers->isEmpty()) {
             return $this->notAchieved('El esquema no tiene tiers configurados.');
         }
 
-        // ── Solo evaluar agentes en su primer año ──────────────────────
-        $firstYearEnd = $user->created_at
-            ? $user->created_at->copy()->addYear()
-            : null;
+        // ── Métricas del trimestre ────────────────────────────────────
+        $pca = $this->calculateQuarterlyPca($user, $periodStart, $periodEnd);
+        $policyCount = $this->countQuarterlyPolicies($user, $periodStart, $periodEnd);
+        $productRules = $this->validateProductRules($user, $scheme, $periodStart, $periodEnd);
+        $productsMet = $productRules['met'];
+        $productBreakdown = $productRules['breakdown'];
 
-        if ($firstYearEnd === null || $periodEnd->greaterThan($firstYearEnd)) {
-            return $this->notAchieved('El agente ya superó su primer año de producción.');
+        // ── Construir barras de producto ──────────────────────────────
+        $productBars = [];
+        foreach ($productBreakdown as $item) {
+            $productBars[] = [
+                'label'   => 'Pólizas ' . $item['product_type'],
+                'current' => $item['count'],
+                'target'  => $item['required'],
+                'met'     => $item['met'],
+            ];
         }
 
-        // ── Validar Reglas Globales del Esquema ────────────────────────
-        $primordialInfo = $this->validateGlobalRules($user, $scheme);
-        $primordialMet   = $primordialInfo['met'];
-        $primordialCount = $primordialInfo['count'];
-        $primordialRequired = $primordialInfo['required'];
-
-        // ── Métrica ────────────────────────────────────────────────────
-        $pca = $this->calculateFirstYearPca($user);
-
-        // ── Evaluar tiers (ordenados de mayor a menor min_pca) ────────
-        $easiestTierMinPca = 0.0; // El PCA mínimo del tier más bajo (para progreso)
+        // ── Evaluar tiers (mayor min_pca primero) ─────────────────────
+        $easiestTierMinPca = 0.0;
         foreach ($tiers as $index => $tier) {
             $conditions = $tier->conditions ?? [];
             $minPca = (float) ($conditions['min_pca'] ?? 0);
-
-            // El último tier del recorrido (menor min_pca) es el más fácil
             $easiestTierMinPca = $minPca;
 
             if ($pca >= $minPca) {
                 $amount = $this->calculateAmount($tier, $user, $pca);
 
-                // El bono SOLO se desbloquea si PCA Y Primordial se cumplen
-                $isAchieved = $primordialMet;
+                // El bono SOLO se desbloquea si PCA Y TODOS los productos se cumplen
+                $isAchieved = $productsMet;
+
+                $pcaBar = [
+                    'label'   => 'PCA Trimestral ($)',
+                    'current' => round($pca, 2),
+                    'target'  => $minPca,
+                    'met'     => $pca >= $minPca,
+                ];
 
                 return [
                     'is_achieved' => $isAchieved,
@@ -93,120 +122,223 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
                     'tier_index'  => $index,
                     'tier_data'   => $tier->toArray(),
                     'progress'    => [
-                        'metric_label'   => 'PCA 1.er Año ($)',
+                        'metric_label'   => 'PCA Trimestral ($)',
                         'current_value'  => round($pca, 2),
                         'required_value' => $minPca,
                     ],
-                    'progress_breakdown' => [
+                    'progress_breakdown' => array_merge(
+                        [$pcaBar],
+                        $productBars,
                         [
-                            'label'   => 'PCA Acumulada 1.er Año ($)',
-                            'current' => round($pca, 2),
-                            'target'  => $minPca,
-                            'met'     => $pca >= $minPca,
+                            [
+                                'label'   => 'Total Pólizas en el Trimestre',
+                                'current' => $policyCount,
+                                'target'  => 0,
+                                'met'     => true,
+                            ],
                         ],
-                        [
-                            'label'   => 'Pólizas Primordial',
-                            'current' => $primordialCount,
-                            'target'  => $primordialRequired,
-                            'met'     => $primordialMet,
-                        ],
-                    ],
+                    ),
                     'details'     => [
                         'calculator'     => static::class,
                         'version_name'   => $version->version_name,
                         'pca'            => round($pca, 2),
+                        'policy_count'   => $policyCount,
                         'first_year_end' => $firstYearEnd->toDateString(),
                     ],
                 ];
             }
         }
 
+        // ── No alcanzó ningún tier ────────────────────────────────────
         return $this->notAchieved(
-            reason: "PCA 1.er año: \$" . number_format($pca, 2),
-            currentPca: $pca,
+            reason: "PCA trimestral: \$" . number_format($pca, 2)
+                . " — mínimo requerido: \$" . number_format($easiestTierMinPca, 2),
+            pca: $pca,
             requiredPca: $easiestTierMinPca,
-            primordialCount: $primordialCount,
-            primordialRequired: $primordialRequired,
-            primordialMet: $primordialMet,
+            productBreakdown: $productBreakdown,
+            policyCount: $policyCount,
         );
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+    // ── Métricas Trimestrales ─────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Valida las reglas globales del esquema (requires_product, min_product_count).
+     * Calcula la PCA trimestral del agente.
      *
-     * Retorna un arreglo con el conteo de pólizas Primordial y si se cumple
-     * el requisito. Ya NO aborta el flujo — permite que el cálculo continúe
-     * para mostrar el progress_breakdown completo.
-     *
-     * @return array{met: bool, count: int, required: int}
+     * PCA = Σ(premium_amount − $1,500) por cada póliza Pagada en el periodo.
+     * Mínimo $0 por póliza.
      */
-    private function validateGlobalRules(
-        Agent $agent,
-        Scheme $scheme,
-    ): array {
-        $requiredProducts = $scheme->requires_product ?? [];
-        $minProductCount  = (int) ($scheme->min_product_count ?? 0);
+    private function calculateQuarterlyPca(Agent $agent, Carbon $start, Carbon $end): float
+    {
+        $policies = $agent->policies()
+            ->whereBetween('issue_date', [$start, $end])
+            ->where('status', Policy::STATUS_PAGADA)
+            ->get();
 
-        // Si no hay productos requeridos configurados, se omite esta validación
-        if (empty($requiredProducts) || $minProductCount <= 0) {
-            return ['met' => true, 'count' => 0, 'required' => 0];
-        }
-
-        foreach ($requiredProducts as $productType) {
-            // Resolver alias: 'Vida' → ['METLIFE', 'PERFECTLIFE']
-            $resolvedTypes = $this->resolveProductAlias($productType);
-
-            // Contar TODAS las pólizas del agente de los tipos resueltos, sin limitar por periodo.
-            // El requisito de producto es global (¿tiene el agente este producto?),
-            // mientras que el PCA sí está acotado al primer año.
-            $count = $agent->policies()
-                ->whereIn('product_type', $resolvedTypes)
-                ->where('status', Policy::STATUS_PAGADA)
-                ->count();
-
-            return [
-                'met'      => $count >= $minProductCount,
-                'count'    => $count,
-                'required' => $minProductCount,
-            ];
-        }
-
-        return ['met' => true, 'count' => 0, 'required' => 0];
+        return $policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500));
     }
 
     /**
-     * Cuenta las pólizas del agente de un tipo de producto específico en un periodo.
-     * Soporta alias: 'Vida' cuenta METLIFE + PERFECTLIFE.
+     * Cuenta el total de pólizas Pagadas en el trimestre.
      */
-    private function countPoliciesByProduct(
-        Agent $agent,
-        string $productType,
-        Carbon $periodStart,
-        Carbon $periodEnd
-    ): int {
-        $resolvedTypes = $this->resolveProductAlias($productType);
-
+    private function countQuarterlyPolicies(Agent $agent, Carbon $start, Carbon $end): int
+    {
         return $agent->policies()
-            ->whereIn('product_type', $resolvedTypes)
-            ->whereBetween('issue_date', [$periodStart, $periodEnd])
+            ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
             ->count();
     }
 
     /**
-     * Suma las primas de pólizas del agente emitidas en su primer año.
+     * Valida los requisitos de producto del esquema DENTRO del trimestre.
+     *
+     * Soporta dos formatos:
+     *   - Nuevo: [{product_type: "Primordial", min_count: 3}]
+     *   - Viejo:  ["Vida", "Primordial"] + min_product_count del esquema
+     *
+     * @return array{met: bool, count: int, required: int, breakdown: array}
      */
-    private function calculateFirstYearPca(Agent $agent): float
-    {
-        $firstYearEnd = $agent->created_at->copy()->addYear();
+    private function validateProductRules(
+        Agent $agent,
+        Scheme $scheme,
+        Carbon $start,
+        Carbon $end,
+    ): array {
+        $requiredProducts = $scheme->requires_product ?? [];
 
-        return (float) $agent->policies()
-            ->whereBetween('issue_date', [$agent->created_at, $firstYearEnd])
-            ->where('status', Policy::STATUS_PAGADA)
-            ->sum('premium_amount');
+        if (empty($requiredProducts) || !is_array($requiredProducts)) {
+            return ['met' => true, 'count' => 0, 'required' => 0, 'breakdown' => []];
+        }
+
+        $firstItem = $requiredProducts[0] ?? null;
+
+        // Nuevo formato: [{product_type, min_count}]
+        if (is_array($firstItem) && isset($firstItem['product_type'])) {
+            return $this->validateNewFormat($agent, $requiredProducts, $start, $end);
+        }
+
+        // Viejo formato: array de strings + min_product_count
+        if (is_string($firstItem)) {
+            $minProductCount = (int) ($scheme->min_product_count ?? 0);
+            return $this->validateOldFormat($agent, $requiredProducts, $minProductCount, $start, $end);
+        }
+
+        return ['met' => true, 'count' => 0, 'required' => 0, 'breakdown' => []];
     }
+
+    /**
+     * Valida el nuevo formato [{product_type, min_count}] dentro del trimestre.
+     * TODOS los productos deben cumplir su min_count individual (AND).
+     */
+    private function validateNewFormat(
+        Agent $agent,
+        array $requiredProducts,
+        Carbon $start,
+        Carbon $end,
+    ): array {
+        $allMet = true;
+        $totalCount = 0;
+        $totalRequired = 0;
+        $breakdown = [];
+
+        foreach ($requiredProducts as $item) {
+            $productType = $item['product_type'] ?? '';
+            $minCount    = (int) ($item['min_count'] ?? 1);
+
+            if ($productType === '' || $minCount <= 0) {
+                continue;
+            }
+
+            $resolvedTypes = $this->resolveProductAlias($productType);
+            $count = $agent->policies()
+                ->whereIn('product_type', $resolvedTypes)
+                ->whereBetween('issue_date', [$start, $end])
+                ->where('status', Policy::STATUS_PAGADA)
+                ->count();
+
+            $met = $count >= $minCount;
+            if (!$met) {
+                $allMet = false;
+            }
+
+            $totalCount    += $count;
+            $totalRequired += $minCount;
+
+            $breakdown[] = [
+                'product_type' => $productType,
+                'count'        => $count,
+                'required'     => $minCount,
+                'met'          => $met,
+            ];
+        }
+
+        return [
+            'met'       => $allMet,
+            'count'     => $totalCount,
+            'required'  => $totalRequired,
+            'breakdown' => $breakdown,
+        ];
+    }
+
+    /**
+     * Valida el viejo formato (array de strings + min_product_count único)
+     * dentro del trimestre.
+     */
+    private function validateOldFormat(
+        Agent $agent,
+        array $requiredProducts,
+        int $minProductCount,
+        Carbon $start,
+        Carbon $end,
+    ): array {
+        if ($minProductCount <= 0) {
+            return ['met' => true, 'count' => 0, 'required' => 0, 'breakdown' => []];
+        }
+
+        $totalCount = 0;
+        $allMet = true;
+        $breakdown = [];
+
+        foreach ($requiredProducts as $productType) {
+            if (!is_string($productType) || $productType === '') {
+                continue;
+            }
+
+            $resolvedTypes = $this->resolveProductAlias($productType);
+            $count = $agent->policies()
+                ->whereIn('product_type', $resolvedTypes)
+                ->whereBetween('issue_date', [$start, $end])
+                ->where('status', Policy::STATUS_PAGADA)
+                ->count();
+
+            $met = $count >= $minProductCount;
+            if (!$met) {
+                $allMet = false;
+            }
+
+            $totalCount += $count;
+
+            $breakdown[] = [
+                'product_type' => $productType,
+                'count'        => $count,
+                'required'     => $minProductCount,
+                'met'          => $met,
+            ];
+        }
+
+        return [
+            'met'       => $allMet,
+            'count'     => $totalCount,
+            'required'  => $minProductCount,
+            'breakdown' => $breakdown,
+        ];
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ── Helpers ────────────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
 
     private function resolveActiveVersion(Scheme $scheme, Carbon $start, Carbon $end): ?SchemeVersion
     {
@@ -230,47 +362,44 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         if (!empty($tier->fixed_amount) && (float) $tier->fixed_amount > 0) {
             return (float) $tier->fixed_amount;
         }
-        // Para Agent, siempre usamos agent_percentage
         $percentage = (float) ($tier->agent_percentage ?? 0);
         return round($base * ($percentage / 100), 2);
     }
 
     /**
      * Retorna un resultado estándar de «no alcanzado».
-     *
-     * @param  string  $reason              Motivo del fallo (legible por humanos).
-     * @param  float   $currentPca          PCA actual para mostrar en el progreso (default 0).
-     * @param  float   $requiredPca         PCA requerido para el tier más bajo (default 0).
-     * @param  int     $primordialCount     Conteo real de pólizas Primordial pagadas.
-     * @param  int     $primordialRequired  Mínimo requerido de pólizas Primordial.
-     * @param  bool    $primordialMet       Si se cumple el requisito Primordial.
      */
     private function notAchieved(
-        string $reason,
-        float $currentPca = 0.0,
+        string $reason = '',
+        float $pca = 0.0,
         float $requiredPca = 0.0,
-        int $primordialCount = 0,
-        int $primordialRequired = 0,
-        bool $primordialMet = true,
+        array $productBreakdown = [],
+        int $policyCount = 0,
     ): array {
         $breakdown = [
             [
-                'label'   => 'PCA Acumulada 1.er Año ($)',
-                'current' => round($currentPca, 2),
+                'label'   => 'PCA Trimestral ($)',
+                'current' => round($pca, 2),
                 'target'  => $requiredPca,
-                'met'     => $requiredPca > 0 ? $currentPca >= $requiredPca : ($currentPca > 0),
+                'met'     => $requiredPca > 0 ? $pca >= $requiredPca : ($pca > 0),
             ],
         ];
 
-        // Agregar barra de Primordial si el esquema lo requiere
-        if ($primordialRequired > 0) {
+        foreach ($productBreakdown as $item) {
             $breakdown[] = [
-                'label'   => 'Pólizas Primordial',
-                'current' => $primordialCount,
-                'target'  => $primordialRequired,
-                'met'     => $primordialMet,
+                'label'   => 'Pólizas ' . $item['product_type'],
+                'current' => $item['count'],
+                'target'  => $item['required'],
+                'met'     => $item['met'],
             ];
         }
+
+        $breakdown[] = [
+            'label'   => 'Total Pólizas en el Trimestre',
+            'current' => $policyCount,
+            'target'  => 0,
+            'met'     => true,
+        ];
 
         return [
             'is_achieved' => false,
@@ -278,8 +407,8 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
             'tier_index'  => null,
             'tier_data'   => null,
             'progress'    => [
-                'metric_label'   => 'PCA 1.er Año ($)',
-                'current_value'  => round($currentPca, 2),
+                'metric_label'   => 'PCA Trimestral ($)',
+                'current_value'  => round($pca, 2),
                 'required_value' => $requiredPca,
             ],
             'progress_breakdown' => $breakdown,
@@ -287,3 +416,4 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         ];
     }
 }
+
