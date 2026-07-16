@@ -59,18 +59,30 @@ class ActivityRatioCalculatorTest extends TestCase
         Carbon::setTestNow(Carbon::parse('2026-06-15'));
 
         // Bono prerequisite "Producción 1er Año Vida Trimestral" (activo)
+        // Con tiers mínimos para que los agentes de los tests lo alcancen.
         $prerequisite = Scheme::create([
-            'name'      => 'agent_first_year_production',
-            'type'      => 'bonus',
-            'target'    => 'agent',
-            'is_active' => true,
+            'name'         => 'agent_first_year_production',
+            'template_key' => 'agent_first_year_production',
+            'type'         => 'bonus',
+            'target'       => 'agent',
+            'is_active'    => true,
+            'requires_product' => [],
         ]);
 
-        SchemeVersion::create([
+        $prereqVersion = SchemeVersion::create([
             'scheme_id'    => $prerequisite->id,
             'version_name' => 'v1.0',
             'starts_at'    => '2026-01-01',
             'ends_at'      => '2026-12-31',
+        ]);
+
+        // Tier mínimo: $1 PCA → 0% (solo para que el prerequisite se considere alcanzado)
+        SchemeTier::create([
+            'scheme_version_id'   => $prereqVersion->id,
+            'conditions'          => ['min_pca' => 1],
+            'agent_percentage'    => 0,
+            'agent_automatic_percentage' => 0,
+            'promoter_percentage' => 0,
         ]);
 
         $this->prerequisiteSchemeId = $prerequisite->id;
@@ -103,7 +115,7 @@ class ActivityRatioCalculatorTest extends TestCase
         for ($i = 0; $i < 5; $i++) {
             Policy::factory()->vida()->withPremium(150_000)
                 ->for($agent)
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
@@ -132,7 +144,7 @@ class ActivityRatioCalculatorTest extends TestCase
         for ($i = 0; $i < 6; $i++) {
             Policy::factory()->vida()->withPremium(18_000)
                 ->for($agent)
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
@@ -165,7 +177,7 @@ class ActivityRatioCalculatorTest extends TestCase
         for ($i = 0; $i < 6; $i++) {
             Policy::factory()->vida()->withPremium(150_000) // 2.0 c/u
                 ->for($agent)
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
@@ -186,7 +198,7 @@ class ActivityRatioCalculatorTest extends TestCase
         // 1 póliza de $50K (rango $21K–$60K → 1.0)
         Policy::factory()->vida()->withPremium(50_000)
             ->for($agent)
-            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
+            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
@@ -208,7 +220,7 @@ class ActivityRatioCalculatorTest extends TestCase
         for ($i = 0; $i < 10; $i++) {
             Policy::factory()->vida()->withPremium(10_000)
                 ->for($agent)
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
+                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
@@ -249,7 +261,7 @@ class ActivityRatioCalculatorTest extends TestCase
             'is_active'            => true,
             'metric_base'          => 'PCA',
             'frequency'            => 'trimestral',
-            'dependency_scheme_id' => (string) $this->prerequisiteSchemeId,
+            'dependency_scheme_id' => 'agent_first_year_production',
             'pna_equivalences'     => self::PNA_EQUIVALENCES,
         ]);
 

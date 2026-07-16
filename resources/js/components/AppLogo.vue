@@ -14,5 +14,5 @@ defineProps<Props>();
     </div>
     <div class="ml-1 grid flex-1 text-left text-sm">
         <span class="mb-0.5 truncate font-semibold leading-none">Gestor de Pólizas</span>
-    </div>
+    </div>  
 </template>

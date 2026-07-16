@@ -32,14 +32,15 @@ trait ProductAliasResolver
     ];
 
     /**
-     * Resuelve un alias de producto a los nombres reales de producto en BD.
+     * Resuelve un alias de producto a los nombres reales de producto en BD,
+     * incluyendo el propio alias para políticas que usen el valor literal.
      *
      * Si el nombre dado es un alias conocido (ej. 'Vida'), retorna el array
-     * de productos reales que lo componen.
+     * de productos reales que lo componen MÁS el alias mismo.
      * Si no es un alias, retorna un array con el nombre original.
      *
      * Ejemplos:
-     *   resolveProductAlias('Vida')       → ['METLIFE', 'PERFECTLIFE']
+     *   resolveProductAlias('Vida')       → ['Vida', 'METLIFE', 'PERFECTLIFE']
      *   resolveProductAlias('Primordial') → ['Primordial']
      *   resolveProductAlias('METLIFE')    → ['METLIFE']
      *
@@ -48,7 +49,14 @@ trait ProductAliasResolver
      */
     protected function resolveProductAlias(string $productType): array
     {
-        return $this->productAliases[$productType] ?? [$productType];
+        $resolved = $this->productAliases[$productType] ?? null;
+
+        if ($resolved === null) {
+            return [$productType];
+        }
+
+        // Incluir el alias mismo: políticas con product_type='Vida' también deben contar
+        return array_merge([$productType], $resolved);
     }
 
     /**

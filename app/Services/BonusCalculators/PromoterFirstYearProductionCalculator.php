@@ -63,16 +63,45 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         $irp = $this->calculateIRP($user, $periodStart, $periodEnd);
 
         // ── 2b. Requisito de producto (cálculo anticipado) ────────────────
-        //     Se evalúa al inicio para que la barra de Primordial aparezca
-        //     SIEMPRE en el progress_breakdown, incluso en fallos tempranos.
+        //     Soporta nuevo formato [{product_type, min_count}] y viejo ["string"].
+        //     Construye barras por producto y verifica si TODOS se cumplen.
         $requiredProducts = $scheme->requires_product ?? [];
-        $minProductCount  = (int) ($scheme->min_product_count ?? 0);
-        $primordialCount  = 0;
-        $primordialMet    = true; // Sin requisito → aprobado por defecto
-        if (!empty($requiredProducts) && $minProductCount > 0) {
-            foreach ($requiredProducts as $productType) {
-                $primordialCount = $this->countPoliciesByType($user, $productType, $periodStart, $periodEnd);
-                $primordialMet   = $primordialCount >= $minProductCount;
+        $productRequirements = $this->parseProductRequirements($requiredProducts, (int) ($scheme->min_product_count ?? 0));
+        $productBars = [];
+        $productsAllMet = true;
+        if (!empty($requiredProducts)) {
+            foreach ($productRequirements['items'] as $req) {
+                $count = $this->countPoliciesByType($user, $req['product_type'], $periodStart, $periodEnd);
+                $met = $count >= $req['min_count'];
+                if (!$met) {
+                    $productsAllMet = false;
+                }
+                $productBars[] = [
+                    'product_type' => $req['product_type'],
+                    'count'        => $count,
+                    'required'     => $req['min_count'],
+                    'met'          => $met,
+                ];
+            }
+        }
+
+        // ── 2c. Cuota trimestral de reclutamiento ───────────────────────
+        //     Se calcula antes de las validaciones para incluir la barra
+        //     en el progress_breakdown de todos los caminos (éxito y fallo).
+        $recruitsBar = null;
+        $quarterlyQuota = $scheme->quarterly_recruits ?? [];
+        $currentQuarter = 0;
+        if (!empty($quarterlyQuota)) {
+            $currentQuarter = $this->getCurrentQuarter($periodEnd);
+            $requiredRecruits = $quarterlyQuota["q{$currentQuarter}"] ?? 0;
+            if ($requiredRecruits > 0) {
+                $actualRecruits = $this->countYearToDateRecruits($user, $periodEnd);
+                $recruitsBar = [
+                    'label'   => "Reclutas acumulados Q{$currentQuarter}",
+                    'current' => $actualRecruits,
+                    'target'  => $requiredRecruits,
+                    'met'     => $actualRecruits >= $requiredRecruits,
+                ];
             }
         }
 
@@ -86,31 +115,21 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
                 pp: $pp,
                 irp: $irp,
                 globalMinIrp: $globalMinIrp,
-                primordialCount: $primordialCount,
-                primordialRequired: $minProductCount,
-                primordialMet: $primordialMet,
+                productBars: $productBars,
+                recruitsBar: $recruitsBar,
             );
         }
 
-        // 3b. Cuota trimestral de reclutamiento
-        $quarterlyQuota = $scheme->quarterly_recruits ?? [];
-        if (!empty($quarterlyQuota)) {
-            $currentQuarter = $this->getCurrentQuarter($periodEnd);
-            $requiredRecruits = $quarterlyQuota["q{$currentQuarter}"] ?? 0;
-            if ($requiredRecruits > 0) {
-                $actualRecruits = $this->countYearToDateRecruits($user, $periodEnd);
-                if ($actualRecruits < $requiredRecruits) {
-                    return $this->notAchieved(
-                        reason: "Cuota trimestral Q{$currentQuarter} no cumplida: requiere {$requiredRecruits} reclutas, tiene {$actualRecruits}.",
-                        pp: $pp,
-                        irp: $irp,
-                        globalMinIrp: $globalMinIrp,
-                        primordialCount: $primordialCount,
-                        primordialRequired: $minProductCount,
-                        primordialMet: $primordialMet,
-                    );
-                }
-            }
+        // 3b. Cuota trimestral de reclutamiento (fallo temprano)
+        if ($recruitsBar !== null && !$recruitsBar['met']) {
+            return $this->notAchieved(
+                reason: "Cuota trimestral Q{$currentQuarter} no cumplida: requiere {$recruitsBar['target']} reclutas, tiene {$recruitsBar['current']}.",
+                pp: $pp,
+                irp: $irp,
+                globalMinIrp: $globalMinIrp,
+                productBars: $productBars,
+                recruitsBar: $recruitsBar,
+            );
         }
 
         // ── 4. Evaluar tiers (mejor porcentaje primero) ──────────────────
@@ -126,8 +145,39 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
             $ppOk  = $pp >= $minPp;
             $irpOk = $irp >= $minIrp && $irp <= $maxIrp;
 
-            if ($ppOk && $irpOk && $primordialMet) {
+            if ($ppOk && $irpOk && $productsAllMet) {
                 $amount = $this->calculateAmount($tier, $user, $pp);
+
+                // Construir barras de progreso base (PP + IRP)
+                $baseBars = [
+                    [
+                        'label'   => 'Producción Primaria — PP ($)',
+                        'current' => round($pp, 2),
+                        'target'  => $minPp,
+                        'met'     => $pp >= $minPp,
+                    ],
+                    [
+                        'label'   => 'Índice de Retención — IRP (%)',
+                        'current' => round($irp, 2),
+                        'target'  => $globalMinIrp,
+                        'met'     => $irp >= $globalMinIrp,
+                    ],
+                ];
+
+                // Agregar barras por producto
+                foreach ($productBars as $pb) {
+                    $baseBars[] = [
+                        'label'   => 'Pólizas ' . $pb['product_type'],
+                        'current' => $pb['count'],
+                        'target'  => $pb['required'],
+                        'met'     => $pb['met'],
+                    ];
+                }
+
+                // Agregar barra de reclutas si aplica
+                if ($recruitsBar !== null) {
+                    $baseBars[] = $recruitsBar;
+                }
 
                 return [
                     'is_achieved' => true,
@@ -139,26 +189,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
                         'current_value'  => round($pp, 2),
                         'required_value' => $minPp,
                     ],
-                    'progress_breakdown' => [
-                        [
-                            'label'   => 'Producción Primaria — PP ($)',
-                            'current' => round($pp, 2),
-                            'target'  => $minPp,
-                            'met'     => $pp >= $minPp,
-                        ],
-                        [
-                            'label'   => 'Índice de Retención — IRP (%)',
-                            'current' => round($irp, 2),
-                            'target'  => $globalMinIrp,
-                            'met'     => $irp >= $globalMinIrp,
-                        ],
-                        [
-                            'label'   => 'Pólizas Primordial Requeridas',
-                            'current' => $primordialCount,
-                            'target'  => $minProductCount,
-                            'met'     => $primordialMet,
-                        ],
-                    ],
+                    'progress_breakdown' => $baseBars,
                     'details'     => [
                         'calculator'   => static::class,
                         'version_name' => $version->version_name,
@@ -175,13 +206,53 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
             pp: $pp,
             irp: $irp,
             globalMinIrp: $globalMinIrp,
-            primordialCount: $primordialCount,
-            primordialRequired: $minProductCount,
-            primordialMet: $primordialMet,
+            productBars: $productBars,
+            recruitsBar: $recruitsBar,
         );
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
+
+    /**
+     * Parsea requires_product en cualquiera de los dos formatos soportados.
+     *
+     * @return array{items: array, total_count: int, total_required: int, all_met: bool}
+     */
+    private function parseProductRequirements(array $requiresProduct, int $legacyMinCount): array
+    {
+        if (empty($requiresProduct)) {
+            return ['items' => [], 'total_count' => 0, 'total_required' => 0, 'all_met' => true];
+        }
+
+        $firstItem = $requiresProduct[0] ?? null;
+
+        // Nuevo formato: [{product_type, min_count}]
+        if (is_array($firstItem) && isset($firstItem['product_type'])) {
+            $items = [];
+            $totalRequired = 0;
+            foreach ($requiresProduct as $item) {
+                $items[] = [
+                    'product_type' => $item['product_type'] ?? '',
+                    'min_count'    => (int) ($item['min_count'] ?? 1),
+                ];
+                $totalRequired += (int) ($item['min_count'] ?? 1);
+            }
+            return ['items' => $items, 'total_count' => 0, 'total_required' => $totalRequired, 'all_met' => false];
+        }
+
+        // Viejo formato: array de strings
+        if (is_string($firstItem)) {
+            $items = [];
+            foreach ($requiresProduct as $productType) {
+                if (is_string($productType) && $productType !== '') {
+                    $items[] = ['product_type' => $productType, 'min_count' => $legacyMinCount];
+                }
+            }
+            return ['items' => $items, 'total_count' => 0, 'total_required' => $legacyMinCount, 'all_met' => false];
+        }
+
+        return ['items' => [], 'total_count' => 0, 'total_required' => 0, 'all_met' => true];
+    }
 
     /**
      * Calcula la Producción Primaria (PP): suma de primas en el periodo.
@@ -316,9 +387,8 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         float $pp = 0.0,
         float $irp = 0.0,
         float $globalMinIrp = 0.0,
-        int $primordialCount = 0,
-        int $primordialRequired = 0,
-        bool $primordialMet = true,
+        array $productBars = [],
+        ?array $recruitsBar = null,
     ): array {
         $breakdown = [
             [
@@ -335,14 +405,19 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
             ],
         ];
 
-        // Agregar barra de Primordial si el esquema lo requiere
-        if ($primordialRequired > 0) {
+        // Agregar barras por producto desde el desglose
+        foreach ($productBars as $pb) {
             $breakdown[] = [
-                'label'   => 'Pólizas Primordial Requeridas',
-                'current' => $primordialCount,
-                'target'  => $primordialRequired,
-                'met'     => $primordialMet,
+                'label'   => 'Pólizas ' . $pb['product_type'],
+                'current' => $pb['count'],
+                'target'  => $pb['required'],
+                'met'     => $pb['met'],
             ];
+        }
+
+        // Agregar barra de reclutas si aplica
+        if ($recruitsBar !== null) {
+            $breakdown[] = $recruitsBar;
         }
 
         return [
