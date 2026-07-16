@@ -308,13 +308,18 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
 
     /**
      * Calcula el PCA individual de un agente en el periodo.
+     *
+     * PCA = PNA − $1,500 por cada póliza (mínimo $0 por póliza).
+     * Solo se consideran pólizas con estatus Pagada.
      */
     private function calculateAgentPca(Agent $agent, Carbon $start, Carbon $end): float
     {
-        return (float) $agent->policies()
+        $policies = $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
-            ->sum('premium_amount');
+            ->get();
+
+        return $policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500));
     }
 
     /**

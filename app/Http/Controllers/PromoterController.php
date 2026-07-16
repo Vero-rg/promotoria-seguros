@@ -140,7 +140,7 @@ class PromoterController extends Controller
             $query->activeInPeriod($endDate)
                 ->with(['policies' => function ($q) use ($startDate, $endDate) {
                     $q->whereBetween('issue_date', [$startDate, $endDate])
-                        ->where('status', Policy::STATUS_PAGADA)
+                        ->whereIn('status', [Policy::STATUS_ACTIVA, Policy::STATUS_PAGADA])
                         ->latest('issue_date');
                 }]);
         }]);
@@ -185,6 +185,7 @@ class PromoterController extends Controller
         $bonusesTotal = count($bonusesProgress);
 
         // ─── Comisiones del Promotor (basado en esquema de comisión activo) ────
+        //     Se calcula per-policy con la fórmula secuencial ISR → facturación
         $commissionScheme = \App\Models\Scheme::with(['versions.tiers'])
             ->where('type', 'commission')
             ->where('is_active', true)
@@ -192,17 +193,26 @@ class PromoterController extends Controller
             ->first();
 
         $commissionsByAgent = [];
-        $totalPromoterCommission = 0;
+        $totalGross        = 0;
+        $totalIsr          = 0;
+        $totalBilling      = 0;
+        $totalNet          = 0;
 
         if ($commissionScheme) {
             $latestVersion = $commissionScheme->versions->sortByDesc('starts_at')->first();
 
             if ($latestVersion && $latestVersion->tiers->isNotEmpty()) {
                 foreach ($agents as $agent) {
-                    $agentCommission = 0;
+                    $agentGross   = 0;
+                    $agentIsr     = 0;
+                    $agentBilling = 0;
+                    $agentNet     = 0;
                     $agentPolicies = [];
 
                     foreach ($agent->policies as $policy) {
+                        // Solo pólizas Pagadas generan comisión para el promotor
+                        if ($policy->status !== Policy::STATUS_PAGADA) continue;
+
                         $productType = $policy->product_type;
                         $tier = $latestVersion->tiers->first(function ($t) use ($productType) {
                             $conds = $t->conditions ?? [];
@@ -210,8 +220,20 @@ class PromoterController extends Controller
                         });
 
                         $percentage = $tier ? (float) ($tier->promoter_percentage ?? 0) : 0;
-                        $commission = (float) $policy->premium_amount * ($percentage / 100);
-                        $agentCommission += $commission;
+                        $gross = (float) $policy->premium_amount * ($percentage / 100);
+
+                        // Per-policy sequential ISR → billing (matching Policy::promoterNetAmount)
+                        $isrPct  = (float) ($policy->isr_retention ?? 0);
+                        $billPct = (float) ($policy->billing_retention ?? 0);
+                        $isr     = $gross * ($isrPct / 100);
+                        $afterIsr = $gross - $isr;
+                        $billing = $afterIsr * ($billPct / 100);
+                        $net     = $afterIsr - $billing;
+
+                        $agentGross   += $gross;
+                        $agentIsr     += $isr;
+                        $agentBilling += $billing;
+                        $agentNet     += $net;
 
                         $agentPolicies[] = [
                             'id' => $policy->id,
@@ -219,25 +241,38 @@ class PromoterController extends Controller
                             'product_type' => $productType,
                             'premium_amount' => (float) $policy->premium_amount,
                             'percentage' => $percentage,
-                            'commission' => round($commission, 2),
+                            'commission' => round($gross, 2),
                             'status' => $policy->status,
                         ];
                     }
 
-                    if ($agentCommission > 0 || $agent->policies->isNotEmpty()) {
+                    if ($agentGross > 0 || $agent->policies->isNotEmpty()) {
                         $commissionsByAgent[] = [
                             'agent_id' => $agent->id,
                             'agent_name' => $agent->name,
                             'photo' => $agent->photo,
-                            'total_commission' => round($agentCommission, 2),
+                            'total_gross'   => round($agentGross, 2),
+                            'total_isr'     => round($agentIsr, 2),
+                            'total_billing' => round($agentBilling, 2),
+                            'total_net'     => round($agentNet, 2),
                             'policies_count' => $agent->policies->count(),
                             'policies' => $agentPolicies,
                         ];
-                        $totalPromoterCommission += $agentCommission;
+                        $totalGross   += $agentGross;
+                        $totalIsr     += $agentIsr;
+                        $totalBilling += $agentBilling;
+                        $totalNet     += $agentNet;
                     }
                 }
             }
         }
+
+        $teamCommissionBreakdown = [
+            'gross'   => round($totalGross, 2),
+            'isr'     => round($totalIsr, 2),
+            'billing' => round($totalBilling, 2),
+            'net'     => round($totalNet, 2),
+        ];
 
         // ─── Datos por Agente para el Directorio Operativo ─────────────────
         $agentsData = $agents->map(function ($agent) {
@@ -308,7 +343,7 @@ class PromoterController extends Controller
                 'bonuses' => $bonusesProgress,
                 'agents' => $agentsData,
                 'commissions' => $commissionsByAgent,
-                'total_promoter_commission' => round($totalPromoterCommission, 2),
+                'team_commission_breakdown' => $teamCommissionBreakdown,
                 'commission_scheme_name' => $commissionScheme?->name ?? null,
             ],
             'filters' => [

@@ -95,14 +95,17 @@ const summary = computed(() => {
     const isrPct = Number(form.isr_retention) || 0;
     const billingPct = Number(form.billing_retention) || 0;
 
-    // ISR y facturación se calculan sobre cada comisión, no sobre la prima
+    // ISR y facturación se calculan secuencialmente sobre cada comisión:
+    // primero se deduce ISR, luego facturación sobre el monto después de ISR
     const isrAgentAmount = agentComm * (isrPct / 100);
-    const billingAgentAmount = agentComm * (billingPct / 100);
-    const agentNetComm = agentComm - isrAgentAmount - billingAgentAmount;
+    const afterIsrAgent = agentComm - isrAgentAmount;
+    const billingAgentAmount = afterIsrAgent * (billingPct / 100);
+    const agentNetComm = afterIsrAgent - billingAgentAmount;
 
     const isrPromoterAmount = promoterComm * (isrPct / 100);
-    const billingPromoterAmount = promoterComm * (billingPct / 100);
-    const promoterNetComm = promoterComm - isrPromoterAmount - billingPromoterAmount;
+    const afterIsrPromoter = promoterComm - isrPromoterAmount;
+    const billingPromoterAmount = afterIsrPromoter * (billingPct / 100);
+    const promoterNetComm = afterIsrPromoter - billingPromoterAmount;
 
     const totalDeductions = isrAgentAmount + billingAgentAmount + isrPromoterAmount + billingPromoterAmount;
     const netAmount = agentNetComm + promoterNetComm;

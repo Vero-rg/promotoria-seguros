@@ -307,7 +307,14 @@ class DashboardController extends Controller
             }
         }
 
-        // ── 2c. Alertas de Promotores ──────────────────────────────────
+        // ── 2c. Alerta de ritmo mensual de producto ────────────────────
+        //     Verifica si los agentes en su primer año, con bonos trimestrales
+        //     que requieren productos, llevan al menos 1 póliza este mes.
+        //     Evalúa TODOS los agentes elegibles (no solo top performers).
+        $monthlyPaceAlerts = $this->generateMonthlyProductPaceAlerts($startDate, $endDate);
+        $alerts = array_merge($alerts, array_slice($monthlyPaceAlerts, 0, 10));
+
+        // ── 2d. Alertas de Promotores ──────────────────────────────────
         $topPromotersForAlerts = Promoter::with(['agents.policies' => function ($q) use ($promoterStart, $promoterEnd) {
             $q->whereBetween('issue_date', [$promoterStart, $promoterEnd]);
         }])->where('is_active', true)->get()
@@ -455,15 +462,34 @@ class DashboardController extends Controller
                     ->map(fn($g) => $g->count())
                     ->toArray();
 
-                // Calcular comisiones ganadas
+                // Calcular comisiones con desglose ISR → facturación → neto
                 $productCommissionMap = app(\App\Http\Controllers\PolicyController::class)->getProductCommissionMap();
-                $totalCommission = $agent->policies->sum(function ($policy) use ($productCommissionMap) {
+                $agentGross   = 0;
+                $agentIsr     = 0;
+                $agentBilling = 0;
+
+                foreach ($agent->policies as $policy) {
+                    // Solo pólizas Pagadas generan comisión
+                    if ($policy->status !== Policy::STATUS_PAGADA) continue;
+
                     $map = $productCommissionMap[$policy->product_type] ?? null;
                     if ($map) {
-                        return (float) $policy->premium_amount * ($map['agent_percentage'] / 100);
+                        $gross = (float) $policy->premium_amount * ($map['agent_percentage'] / 100);
+                    } else {
+                        $gross = (float) $policy->commission_amount;
                     }
-                    return (float) $policy->commission_amount;
-                });
+
+                    $isrPct   = (float) ($policy->isr_retention ?? 0);
+                    $billPct  = (float) ($policy->billing_retention ?? 0);
+                    $isr      = $gross * ($isrPct / 100);
+                    $afterIsr = $gross - $isr;
+                    $billing  = $afterIsr * ($billPct / 100);
+
+                    $agentGross   += $gross;
+                    $agentIsr     += $isr;
+                    $agentBilling += $billing;
+                }
+                $agentNet = $agentGross - $agentIsr - $agentBilling;
 
                 // Calcular bonos ganados por este agente (usando el orquestador)
                 $orchestratorResult = $bonusOrchestrator->calculateAll(
@@ -495,7 +521,13 @@ class DashboardController extends Controller
                     'photo' => $agent->photo,
                     'policies_count' => $agent->policies->count(),
                     'total_volume' => round($agent->policies->sum('premium_amount'), 2),
-                    'total_commission' => round($totalCommission, 2),
+                    'total_commission' => round($agentGross, 2),
+                    'commission_breakdown' => [
+                        'gross'   => round($agentGross, 2),
+                        'isr'     => round($agentIsr, 2),
+                        'billing' => round($agentBilling, 2),
+                        'net'     => round($agentNet, 2),
+                    ],
                     'bonus_names' => $bonusNames,
                     'bonus_details' => $bonusDetails,
                     'sparkline' => array_values($dailyData),
@@ -543,8 +575,10 @@ class DashboardController extends Controller
                 $bonusesSecured = count($bonusNames);
                 $bonusesTotal = max(count($bonusesProgress), 4);
 
-                // ── Calcular comisiones del promotor ─────────────────
-                $totalCommission = 0;
+                // ── Calcular comisiones del promotor con desglose ─────────────
+                $promoGross   = 0;
+                $promoIsr     = 0;
+                $promoBilling = 0;
                 $commissionScheme = Scheme::with(['versions.tiers'])
                     ->where('type', 'commission')
                     ->where('is_active', true)
@@ -556,17 +590,31 @@ class DashboardController extends Controller
                     if ($commVersion && $commVersion->tiers->isNotEmpty()) {
                         foreach ($promoter->agents as $agent) {
                             foreach ($agent->policies as $policy) {
+                                // Solo pólizas Pagadas generan comisión
+                                if ($policy->status !== Policy::STATUS_PAGADA) continue;
+
                                 $productType = $policy->product_type;
                                 $tier = $commVersion->tiers->first(function ($t) use ($productType) {
                                     $conds = $t->conditions ?? [];
                                     return ($conds['product_type'] ?? '') === $productType;
                                 });
                                 $pct = $tier ? (float) ($tier->promoter_percentage ?? 0) : 0;
-                                $totalCommission += (float) $policy->premium_amount * ($pct / 100);
+                                $gross = (float) $policy->premium_amount * ($pct / 100);
+
+                                $isrPct   = (float) ($policy->isr_retention ?? 0);
+                                $billPct  = (float) ($policy->billing_retention ?? 0);
+                                $isr      = $gross * ($isrPct / 100);
+                                $afterIsr = $gross - $isr;
+                                $billing  = $afterIsr * ($billPct / 100);
+
+                                $promoGross   += $gross;
+                                $promoIsr     += $isr;
+                                $promoBilling += $billing;
                             }
                         }
                     }
                 }
+                $promoNet = $promoGross - $promoIsr - $promoBilling;
 
                 return [
                     'id' => $promoter->id,
@@ -577,7 +625,13 @@ class DashboardController extends Controller
                     'bonuses_total' => $bonusesTotal,
                     'bonus_names' => $bonusNames,
                     'bonus_details' => $bonusDetails,
-                    'total_commission' => round($totalCommission, 2),
+                    'total_commission' => round($promoGross, 2),
+                    'commission_breakdown' => [
+                        'gross'   => round($promoGross, 2),
+                        'isr'     => round($promoIsr, 2),
+                        'billing' => round($promoBilling, 2),
+                        'net'     => round($promoNet, 2),
+                    ],
                 ];
             })
             ->sortByDesc('team_volume')
@@ -685,5 +739,102 @@ class DashboardController extends Controller
         }
 
         return round($total, 2);
+    }
+
+    /**
+     * Genera alertas de ritmo mensual de producto para agentes en su primer año.
+     *
+     * Evalúa TODOS los agentes elegibles (no solo top performers) que:
+     * - Están en su primer año desde created_at
+     * - Tienen un bono trimestral activo con requires_product configurado
+     * - No han emitido al menos 1 póliza del producto requerido este mes
+     *
+     * Genera alertas a 7 y 3 días del cierre del mes.
+     */
+    private function generateMonthlyProductPaceAlerts($startDate, $endDate): array
+    {
+        $alerts = [];
+        $now = now();
+        $daysUntilMonthEnd = $now->copy()->endOfMonth()->diffInDays($now, false);
+
+        // Solo generar alertas cuando quedan 7 días o menos
+        if ($daysUntilMonthEnd > 7 || $daysUntilMonthEnd < 0) {
+            return [];
+        }
+
+        $monthStart = $now->copy()->startOfMonth();
+        $monthEnd = $now->copy()->endOfMonth();
+
+        // ── Cargar esquemas trimestrales activos con requires_product ──
+        $trimestralSchemes = Scheme::where('type', 'bonus')
+            ->where('is_active', true)
+            ->where('frequency', 'trimestral')
+            ->whereNotNull('requires_product')
+            ->where('target', 'agent')
+            ->get()
+            ->filter(function ($scheme) {
+                $rp = $scheme->requires_product;
+                return !empty($rp) && is_array($rp);
+            });
+
+        if ($trimestralSchemes->isEmpty()) {
+            return [];
+        }
+
+        // ── Cargar TODOS los agentes activos en su primer año ──────────
+        $firstYearAgents = Agent::where('is_active', true)
+            ->where('created_at', '>=', $now->copy()->subYear())
+            ->get();
+
+        foreach ($firstYearAgents as $agent) {
+            foreach ($trimestralSchemes as $scheme) {
+                $requiresProduct = $scheme->requires_product;
+
+                foreach ($requiresProduct as $item) {
+                    $productType = is_array($item) ? ($item['product_type'] ?? '') : $item;
+                    if ($productType === '') continue;
+
+                    // Resolver alias: 'Vida' → ['METLIFE', 'PERFECTLIFE']
+                    $resolvedTypes = $this->resolveProductTypesForAlert($productType);
+
+                    // Contar pólizas del agente este mes
+                    $countThisMonth = Policy::where('agent_id', $agent->id)
+                        ->whereIn('product_type', $resolvedTypes)
+                        ->whereBetween('issue_date', [$monthStart, $monthEnd])
+                        ->where('status', Policy::STATUS_PAGADA)
+                        ->count();
+
+                    if ($countThisMonth >= 1) {
+                        continue; // Ya tiene al menos 1, sin alerta
+                    }
+
+                    // Determinar nivel de urgencia
+                    if ($daysUntilMonthEnd <= 3) {
+                        $alerts[] = [
+                            'type' => 'product_monthly_pace_urgent',
+                            'message' => "🚨 {$agent->name} aún no tiene una póliza {$productType} este mes para el bono «{$scheme->name}» — quedan {$daysUntilMonthEnd} días.",
+                            'icon' => 'alert-triangle',
+                        ];
+                    } elseif ($daysUntilMonthEnd <= 7) {
+                        $alerts[] = [
+                            'type' => 'product_monthly_pace',
+                            'message' => "⏳ {$agent->name} aún no tiene una póliza {$productType} este mes para el bono «{$scheme->name}» — quedan {$daysUntilMonthEnd} días.",
+                            'icon' => 'clock',
+                        ];
+                    }
+                }
+            }
+        }
+
+        return $alerts;
+    }
+
+    /**
+     * Resuelve un tipo de producto, incluyendo el alias 'Vida'.
+     */
+    private function resolveProductTypesForAlert(string $productType): array
+    {
+        $aliases = ['Vida' => ['METLIFE', 'PERFECTLIFE']];
+        return $aliases[$productType] ?? [$productType];
     }
 }

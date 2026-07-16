@@ -20,9 +20,7 @@ const templates = {
         requires_anticipos: false,
         anticipos_config: { month_1_min: 0, month_2_min: 0 },
         applies_annual_adjustment: true,
-        requires_product: ['Vida'],
-        min_product_count: 0,
-        requires_mix: false,
+        requires_product: [{ product_type: 'Vida', min_count: 1 }],
         dependency_scheme_id: 'agent_first_year_production',
         min_irp: 0,
         min_collection_efficiency: 0,
@@ -50,9 +48,7 @@ const templates = {
         requires_anticipos: true,
         anticipos_config: { month_1_min: 0, month_2_min: 0 },
         applies_annual_adjustment: false,
-        requires_product: ['Vida', 'Primordial'],
-        min_product_count: 2,
-        requires_mix: true,
+        requires_product: [{ product_type: 'Vida', min_count: 1 }, { product_type: 'Primordial', min_count: 3 }],
         dependency_scheme_id: null,
         min_irp: 0,
         min_collection_efficiency: 0,
@@ -80,9 +76,7 @@ const templates = {
         requires_anticipos: true,
         anticipos_config: { month_1_min: 86666, month_2_min: 173333 },
         applies_annual_adjustment: true,
-        requires_product: ['Primordial'],
-        min_product_count: 3,
-        requires_mix: false,
+        requires_product: [{ product_type: 'Primordial', min_count: 3 }],
         dependency_scheme_id: null,
         min_irp: 91,
         min_collection_efficiency: 0,
@@ -107,8 +101,6 @@ const templates = {
         anticipos_config: { month_1_min: 0, month_2_min: 0 },
         applies_annual_adjustment: false,
         requires_product: [],
-        min_product_count: 0,
-        requires_mix: false,
         dependency_scheme_id: 'first_year_production',
         min_irp: 0,
         min_collection_efficiency: 0,
@@ -134,8 +126,6 @@ const templates = {
         anticipos_config: { month_1_min: 0, month_2_min: 0 },
         applies_annual_adjustment: false,
         requires_product: [],
-        min_product_count: 0,
-        requires_mix: false,
         dependency_scheme_id: null,
         min_irp: 0,
         min_collection_efficiency: 0,
@@ -161,8 +151,6 @@ const templates = {
         anticipos_config: { month_1_min: 0, month_2_min: 0 },
         applies_annual_adjustment: false,
         requires_product: [],
-        min_product_count: 0,
-        requires_mix: false,
         dependency_scheme_id: null,
         min_irp: 0,
         min_collection_efficiency: 81,
@@ -213,9 +201,7 @@ const form = useForm({
     requires_anticipos: templates.activity_ratio.requires_anticipos,
     anticipos_config: { ...templates.activity_ratio.anticipos_config },
     applies_annual_adjustment: templates.activity_ratio.applies_annual_adjustment,
-    requires_product: [...templates.activity_ratio.requires_product],
-    min_product_count: templates.activity_ratio.min_product_count,
-    requires_mix: templates.activity_ratio.requires_mix,
+    requires_product: JSON.parse(JSON.stringify(templates.activity_ratio.requires_product)),
     dependency_scheme_id: templates.activity_ratio.dependency_scheme_id,
     min_irp: templates.activity_ratio.min_irp,
     min_collection_efficiency: templates.activity_ratio.min_collection_efficiency,
@@ -236,9 +222,7 @@ watch(selectedTemplate, (newVal) => {
     form.requires_anticipos = tpl.requires_anticipos;
     form.anticipos_config = { ...tpl.anticipos_config };
     form.applies_annual_adjustment = tpl.applies_annual_adjustment;
-    form.requires_product = [...tpl.requires_product];
-    form.min_product_count = tpl.min_product_count;
-    form.requires_mix = tpl.requires_mix;
+    form.requires_product = tpl.requires_product ? JSON.parse(JSON.stringify(tpl.requires_product)) : [];
     form.dependency_scheme_id = tpl.dependency_scheme_id || '';
     form.min_irp = tpl.min_irp;
     form.min_collection_efficiency = tpl.min_collection_efficiency;
@@ -268,6 +252,15 @@ const removeEquivalence = (index: number) => {
 
 const removeTier = (index: number) => {
     form.tiers.splice(index, 1);
+};
+
+const addProduct = () => {
+    if (!form.requires_product) form.requires_product = [];
+    form.requires_product.push({ product_type: 'Vida', min_count: 1 });
+};
+
+const removeProduct = (index: number) => {
+    form.requires_product.splice(index, 1);
 };
 
 const submit = () => {
@@ -382,22 +375,32 @@ const submit = () => {
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                                 <div class="space-y-4">
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Productos Requeridos (Opcional)</label>
-                                        <el-select v-model="form.requires_product" multiple placeholder="Selecciona productos..." style="width: 100%;">
-                                            <el-option label="Vida (METLIFE / PERFECTLIFE)" value="Vida" />
-                                            <el-option label="Primordial" value="Primordial" />
-                                        </el-select>
-                                    </div>
-                                    <div class="flex items-center gap-4">
-                                        <div class="flex-1">
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad Mínima Requerida</label>
-                                            <el-input-number v-model="form.min_product_count" :min="0" style="width: 100%;" />
+                                        <div class="flex justify-between items-center mb-2">
+                                            <label class="block text-sm font-medium text-gray-700">Productos Requeridos (Opcional)</label>
+                                            <el-button type="success" plain size="small" @click="addProduct">+ Agregar Producto</el-button>
                                         </div>
-                                        <div class="flex-1 mt-6">
-                                            <el-checkbox v-model="form.requires_mix" label="Requiere combinación" />
+                                        <div v-if="!form.requires_product || form.requires_product.length === 0" class="text-sm text-gray-400 italic py-2">
+                                            Sin productos requeridos. Agrega uno para establecer condiciones de portafolio.
+                                        </div>
+                                        <div v-for="(prod, index) in form.requires_product" :key="index" class="flex items-center gap-3 bg-gray-50 p-3 border rounded-md mb-2">
+                                            <div class="flex-1">
+                                                <label class="block text-xs text-gray-500 mb-1">Producto</label>
+                                                <el-select v-model="prod.product_type" style="width: 100%;">
+                                                    <el-option label="Vida (METLIFE / PERFECTLIFE)" value="Vida" />
+                                                    <el-option label="Primordial" value="Primordial" />
+                                                </el-select>
+                                            </div>
+                                            <div class="flex-1">
+                                                <label class="block text-xs text-gray-500 mb-1">Cantidad Mínima</label>
+                                                <el-input-number v-model="prod.min_count" :min="1" style="width: 100%;" />
+                                            </div>
+                                            <el-button type="danger" plain @click="removeProduct(index)" class="mt-5">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                                </svg>
+                                            </el-button>
                                         </div>
                                     </div>
-                                    
                                 </div>
                                 <div class="space-y-4 border-l pl-6 border-gray-100">
                                     <div>

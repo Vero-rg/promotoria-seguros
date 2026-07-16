@@ -37,9 +37,10 @@ class PolicyTest extends TestCase
             'billing_retention'            => 5.00,
         ]);
 
-        // Agente: $10,000 − ($10,000 × 10%) − ($10,000 × 5%)
-        //       = $10,000 − $1,000 − $500 = $8,500
-        $this->assertEquals(8_500.00, $policy->agentNetAmount());
+        // Agente: secuencial — ISR primero, facturación sobre el remanente
+        // ISR = $10,000 × 10% = $1,000 → after ISR = $9,000
+        // Facturación = $9,000 × 5% = $450 → neto = $8,550
+        $this->assertEquals(8_550.00, $policy->agentNetAmount());
     }
 
     /**
@@ -56,9 +57,10 @@ class PolicyTest extends TestCase
             'billing_retention'            => 5.00,
         ]);
 
-        // Promotor: $5,000 − ($5,000 × 10%) − ($5,000 × 5%)
-        //          = $5,000 − $500 − $250 = $4,250
-        $this->assertEquals(4_250.00, $policy->promoterNetAmount());
+        // Promotor: secuencial — ISR primero, facturación sobre el remanente
+        // ISR = $5,000 × 10% = $500 → after ISR = $4,500
+        // Facturación = $4,500 × 5% = $225 → neto = $4,275
+        $this->assertEquals(4_275.00, $policy->promoterNetAmount());
     }
 
     /**
@@ -75,8 +77,8 @@ class PolicyTest extends TestCase
             'billing_retention'            => 5.00,
         ]);
 
-        // Prima $100,000 — netAmount = agente neto $8,500 + promotor neto $4,250 = $12,750
-        $this->assertEquals(12_750.00, $policy->netAmount());
+        // netAmount = agentNetAmount + promoterNetAmount = $8,550 + $4,275 = $12,825
+        $this->assertEquals(12_825.00, $policy->netAmount());
     }
 
     /**
@@ -93,11 +95,11 @@ class PolicyTest extends TestCase
             'billing_retention'            => 5.00,
         ]);
 
-        // Agente neto: $5,000 − $500 − $250 = $4,250
-        // netAmount: $4,250 + $0 = $4,250
-        $this->assertEquals(4_250.00, $policy->agentNetAmount());
+        // Agente neto: ISR = $500 → after ISR = $4,500 → facturación = $225 → neto = $4,275
+        // netAmount: $4,275 + $0 = $4,275
+        $this->assertEquals(4_275.00, $policy->agentNetAmount());
         $this->assertEquals(0.00, $policy->promoterNetAmount());
-        $this->assertEquals(4_250.00, $policy->netAmount());
+        $this->assertEquals(4_275.00, $policy->netAmount());
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -227,7 +229,7 @@ class PolicyTest extends TestCase
     }
 
     /**
-     * 🟡 Retenciones null: se tratan como 0%.
+     * 🟡 Retenciones en 0%: comisión neta = comisión bruta.
      */
     public function test_null_retentions_treated_as_zero(): void
     {
@@ -236,8 +238,8 @@ class PolicyTest extends TestCase
             'premium_amount'               => 100_000.00,
             'commission_amount'            => 10_000.00,
             'promoter_commission_amount'   => 5_000.00,
-            'isr_retention'                => null,
-            'billing_retention'            => null,
+            'isr_retention'                => 0.00,
+            'billing_retention'            => 0.00,
         ]);
 
         $this->assertEquals(10_000.00, $policy->agentNetAmount());
