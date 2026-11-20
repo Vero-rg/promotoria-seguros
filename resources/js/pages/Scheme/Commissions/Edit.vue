@@ -23,7 +23,7 @@ const form = useForm({
     tiers: currentVersion.tiers && currentVersion.tiers.length > 0 
         ? JSON.parse(JSON.stringify(currentVersion.tiers))
         : [
-            { conditions: { product_type: 'METLIFE' }, agent_percentage: 0, promoter_percentage: 0 },
+            { conditions: { product_type: 'METALIFE' }, agent_percentage: 0, promoter_percentage: 0 },
             { conditions: { product_type: 'PERFECTLIFE' }, agent_percentage: 0, promoter_percentage: 0 },
             { conditions: { product_type: 'PRIMORDIAL' }, agent_percentage: 0, promoter_percentage: 0 }
         ]

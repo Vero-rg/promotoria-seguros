@@ -1,11 +1,25 @@
 <script setup>
 import AppLayout from '@/layouts/AppLayout.vue';
 import { ref, computed } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
-import { Plus, FileText, Search, Edit, Trash2, MoreHorizontal } from 'lucide-vue-next';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { Plus, FileText, Search, Edit, Trash2, MoreHorizontal, Upload, Download } from 'lucide-vue-next';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
 const STATUS_OPTIONS = ['Activa', 'No tomada', 'Pagada'];
+
+const IMPORT_COLUMNS = [
+    { label: 'Número de póliza', required: true, example: '878901' },
+    { label: 'Cliente', required: false, example: 'Juan Pérez' },
+    { label: 'Producto', required: true, example: 'METALIFE' },
+    { label: 'Agente', required: true, example: 'Nombre del agente' },
+    { label: 'Fecha de emisión', required: true, example: '15/07/2026' },
+    { label: 'PNA', required: true, example: '90000' },
+    { label: '% Retención ISR', required: false, example: '10' },
+    { label: '% Impuesto cedular', required: false, example: '5' },
+    { label: '% Costo facturación', required: true, example: '5' },
+    { label: 'Estatus', required: false, example: 'Activa' },
+    { label: 'Conducto de pago', required: false, example: 'Efectivo' },
+];
 
 const props = defineProps({
     policies: Array,
@@ -87,6 +101,51 @@ const handleDelete = (row) => {
         });
     }).catch(() => {});
 };
+
+// ---------- Importar pólizas ----------
+
+const page = usePage();
+const uploadRef = ref(null);
+const importDialogVisible = ref(false);
+const importResult = ref(null);
+const importForm = useForm({ file: null });
+
+const openImportDialog = () => {
+    importResult.value = null;
+    importForm.reset();
+    importForm.clearErrors();
+    importDialogVisible.value = true;
+};
+
+const handleFileChange = (uploadFile) => {
+    importForm.file = uploadFile.raw ?? null;
+    importResult.value = null;
+    importForm.clearErrors('file');
+};
+
+const handleFileRemove = () => {
+    importForm.file = null;
+};
+
+const handleFileExceed = (files) => {
+    uploadRef.value?.clearFiles();
+    if (files[0]) {
+        uploadRef.value?.handleStart(files[0]);
+    }
+};
+
+const submitImport = () => {
+    importForm.post(route('policies.import'), {
+        forceFormData: true,
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+            importResult.value = page.props.flash?.import_result ?? null;
+            uploadRef.value?.clearFiles();
+            importForm.reset();
+        },
+    });
+};
 </script>
 
 <template>
@@ -99,10 +158,20 @@ const handleDelete = (row) => {
                     <FileText class="w-6 h-6 mr-2 text-gray-500" />
                     Pólizas
                 </h1>
-                <Link :href="route('policies.create')" class="inline-flex items-center px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors">
-                    <Plus class="w-4 h-4 mr-2" />
-                    Nueva Póliza
-                </Link>
+                <div class="flex items-center gap-3">
+                    <button
+                        type="button"
+                        @click="openImportDialog"
+                        class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                        <Upload class="w-4 h-4 mr-2" />
+                        Importar pólizas
+                    </button>
+                    <Link :href="route('policies.create')" class="inline-flex items-center px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors">
+                        <Plus class="w-4 h-4 mr-2" />
+                        Nueva Póliza
+                    </Link>
+                </div>
             </div>
 
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -153,7 +222,7 @@ const handleDelete = (row) => {
                            {{ formatDate(row.issue_date) }}
                        </template>
                    </el-table-column>
-                   <el-table-column prop="premium_amount" label="Prima" width="120" sortable>
+                   <el-table-column prop="premium_amount" label="PNA" width="120" sortable>
                        <template #default="{ row }">
                            {{ formatCurrency(row.premium_amount) }}
                        </template>
@@ -196,5 +265,86 @@ const handleDelete = (row) => {
                </el-table>
            </div>
         </div>
+
+        <el-dialog v-model="importDialogVisible" title="Importar pólizas desde Excel" width="760px" destroy-on-close>
+            <div class="space-y-4">
+                <div class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                    Descarga la plantilla, captura una póliza por fila y súbela aquí. Las comisiones de agente y
+                    promotor se calculan automáticamente con base en el PCA (PNA − $1,350).
+                </div>
+
+                <a
+                    :href="route('policies.import.template')"
+                    class="inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:underline"
+                >
+                    <Download class="w-4 h-4" />
+                    Descargar plantilla de Excel
+                </a>
+
+                <div class="overflow-hidden rounded-lg border border-gray-200">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                            <tr>
+                                <th class="px-3 py-2 font-medium">Columna</th>
+                                <th class="px-3 py-2 font-medium">Obligatoria</th>
+                                <th class="px-3 py-2 font-medium">Ejemplo</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            <tr v-for="column in IMPORT_COLUMNS" :key="column.label">
+                                <td class="px-3 py-1.5 text-gray-700">{{ column.label }}</td>
+                                <td class="px-3 py-1.5" :class="column.required ? 'text-red-600 font-medium' : 'text-gray-400'">
+                                    {{ column.required ? 'Sí' : 'No' }}
+                                </td>
+                                <td class="px-3 py-1.5 text-gray-500">{{ column.example }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <el-upload
+                    ref="uploadRef"
+                    drag
+                    accept=".xlsx,.xls,.csv"
+                    :auto-upload="false"
+                    :limit="1"
+                    :on-change="handleFileChange"
+                    :on-remove="handleFileRemove"
+                    :on-exceed="handleFileExceed"
+                >
+                    <div class="py-2 text-center">
+                        <Upload class="mx-auto mb-2 w-6 h-6 text-gray-400" />
+                        <p class="text-sm text-gray-600">Arrastra el archivo aquí o haz clic para seleccionarlo</p>
+                        <p class="mt-1 text-xs text-gray-400">Formatos: .xlsx, .xls o .csv (máximo 10 MB)</p>
+                    </div>
+                </el-upload>
+                <p v-if="importForm.errors.file" class="text-xs text-red-500">{{ importForm.errors.file }}</p>
+
+                <div
+                    v-if="importResult"
+                    class="rounded-lg border px-4 py-3 text-sm"
+                    :class="importResult.errors?.length ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-green-200 bg-green-50 text-green-800'"
+                >
+                    <p class="font-medium">{{ importResult.imported }} póliza(s) importada(s).</p>
+                    <ul v-if="importResult.errors?.length" class="mt-2 list-disc space-y-1 pl-5">
+                        <li v-for="(error, index) in importResult.errors" :key="index">{{ error }}</li>
+                    </ul>
+                </div>
+            </div>
+
+            <template #footer>
+                <div class="flex justify-end gap-2">
+                    <el-button @click="importDialogVisible = false">Cerrar</el-button>
+                    <el-button
+                        type="primary"
+                        :loading="importForm.processing"
+                        :disabled="!importForm.file"
+                        @click="submitImport"
+                    >
+                        Importar
+                    </el-button>
+                </div>
+            </template>
+        </el-dialog>
     </AppLayout>    
 </template>

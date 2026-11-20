@@ -8,15 +8,15 @@ namespace App\Services\BonusCalculators;
  * REGLA DE NEGOCIO:
  *   El producto «Vida» usado en la configuración de bonos (requires_product)
  *   es un alias que agrupa dos productos reales del portafolio:
- *     - METLIFE
+ *     - METALIFE
  *     - PERFECTLIFE
  *
  *   Cuando un esquema de bono requiere «Vida», el conteo de pólizas debe
- *   sumar las de METLIFE + PERFECTLIFE. Cualquiera de los dos satisface
+ *   sumar las de METALIFE + PERFECTLIFE. Cualquiera de los dos satisface
  *   el requisito.
  *
  * Productos reales (definidos en el esquema de comisiones):
- *   - METLIFE     → catalogado como «Vida»
+ *   - METALIFE     → catalogado como «Vida»
  *   - PERFECTLIFE → catalogado como «Vida»
  *   - PRIMORDIAL  → catalogado como «Primordial»
  */
@@ -28,7 +28,7 @@ trait ProductAliasResolver
      * @var array<string, string[]>
      */
     protected array $productAliases = [
-        'Vida' => ['METLIFE', 'PERFECTLIFE'],
+        'Vida' => ['METALIFE', 'PERFECTLIFE'],
     ];
 
     /**
@@ -40,9 +40,9 @@ trait ProductAliasResolver
      * Si no es un alias, retorna un array con el nombre original.
      *
      * Ejemplos:
-     *   resolveProductAlias('Vida')       → ['Vida', 'METLIFE', 'PERFECTLIFE']
+     *   resolveProductAlias('Vida')       → ['Vida', 'METALIFE', 'PERFECTLIFE']
      *   resolveProductAlias('Primordial') → ['Primordial']
-     *   resolveProductAlias('METLIFE')    → ['METLIFE']
+     *   resolveProductAlias('METALIFE')   → ['METALIFE']
      *
      * @param  string  $productType
      * @return string[]
@@ -65,7 +65,7 @@ trait ProductAliasResolver
      * Útil para validaciones donde necesitas saber si una póliza concreta
      * satisface un requisito de producto configurado como alias.
      *
-     * @param  string  $actualProductType  El product_type real de la póliza (ej. 'METLIFE').
+     * @param  string  $actualProductType  El product_type real de la póliza (ej. 'METALIFE').
      * @param  string  $requiredAlias      El alias configurado en el esquema (ej. 'Vida').
      * @return bool
      */

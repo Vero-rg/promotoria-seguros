@@ -195,8 +195,8 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
         $result = [];
 
         foreach ($recruits as $recruit) {
-            // PCA = PNA − $1,500 por póliza (mínimo $0)
-            $pca = $recruit->policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500));
+            // PCA = PNA − $1,350 por póliza (mínimo $0)
+            $pca = $recruit->policies->sum(fn($p) => max(0, (float) $p->premium_amount - Policy::PCA_DEDUCTION));
             $result[$recruit->id] = (float) $pca;
         }
 

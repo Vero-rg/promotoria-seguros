@@ -30,7 +30,7 @@ flowchart TD
 | `app/Services/BonusOrchestratorService.php` | Central orchestrator — loads schemes, resolves dependencies, dispatches to calculators |
 | `app/Services/BonusCalculators/BonusCalculatorInterface.php` | Strategy interface that all calculators implement |
 | `app/Services/BonusCalculators/BonusCalculatorFactory.php` | Maps `template_key` → calculator class |
-| `app/Services/BonusCalculators/ProductAliasResolver.php` | Trait: resolves product aliases (e.g., "Vida" → METLIFE + PERFECTLIFE) |
+| `app/Services/BonusCalculators/ProductAliasResolver.php` | Trait: resolves product aliases (e.g., "Vida" → METALIFE + PERFECTLIFE) |
 | `app/Services/BonusCalculators/AgentFirstYearProductionCalculator.php` | Agent first-year PCA bonus |
 | `app/Services/BonusCalculators/PromoterFirstYearProductionCalculator.php` | Promoter first-year PP + IRP bonus |
 | `app/Services/BonusCalculators/ConnectionBonusCalculator.php` | Connection bonus (recruit PCA matrix) |
@@ -62,6 +62,8 @@ Same as above but for a single scheme by `template_key`. Useful for preview endp
 ### `toFrontendFormat()`
 Transforms the raw calculation result into a frontend-friendly format with:
 - `name`, `unlocked` (boolean), `progress` (0-100), `target`, `conditions[]`
+- `periodo_evaluado` / `mostrar_alerta_periodo` — real evaluation range and whether it exceeds the visual one
+- `monthly_breakdown[]` / `monthly_total` — per-month amounts for monthly bonuses in multi-month ranges
 
 ### Period Expansion
 The orchestrator "expands" the period based on scheme frequency:
@@ -71,6 +73,21 @@ The orchestrator "expands" the period based on scheme frequency:
 - `única` → uses the period as-is
 
 This is separate from the "visual range" — what the user selected in the UI.
+
+### Monthly View (`$monthlyView`)
+`calculateAll(..., bool $monthlyView = false)` — used by the Directory info pages
+(`agents.show` / `promoters.show`). When enabled:
+
+- **Monthly bonuses** (`frequency = 'mensual'`, including `monthly_development`) are evaluated
+  month by month across the visual range. The headline amount is the **sum** of the months and
+  `monthly_breakdown` carries each month's `unlocked`, `amount` and `conditions`. The frontend
+  renders it as a collapsible panel inside the bonus card.
+- **Quarterly / annual bonuses** are evaluated over the **selected month only** when the visual
+  range spans a single month; otherwise they keep their full period (quarter / year).
+- `monthly_total = true` marks a bonus whose amount is the sum of several months.
+
+The Dashboard keeps the legacy behaviour (no `$monthlyView`) so its projected-bonus totals are
+unchanged.
 
 ---
 
@@ -94,11 +111,14 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 - Validates product requirements via `validateGlobalRules()` which supports two formats:
   - **New format** (since 2026-07-15): `[{product_type: "PRIMORDIAL", min_count: 3}]` — each product has its own minimum count. ALL must be met (AND logic).
   - **Legacy format**: `["PRIMORDIAL"]` + `min_product_count` column — maintained for backward compat.
-- Uses `ProductAliasResolver` to resolve "Vida" → METLIFE + PERFECTLIFE when counting policies.
-- Calculates PCA = sum of `premium_amount` for the agent's first year (raw premium, NOT `max(0, premium - 1500)`).
-- Evaluates tiers by `min_pca` descending.
+- Uses `ProductAliasResolver` to resolve "Vida" → METALIFE + PERFECTLIFE when counting policies.
+- Calculates the quarterly PCA per policy as `MAX(0, premium_amount − 1,350)` and splits it by `payment_method`:
+  - **Cash PCA** (`Efectivo`) uses `agent_percentage` (**Bono Efectivo %**).
+  - **Automatic PCA** (`Automático`, and any policy without a channel) uses `agent_automatic_percentage` (**Bono Automático %**).
+- Evaluates tiers by `min_pca` descending. Each portion is evaluated on its own: `cash_pca × cash%` + `automatic_pca × automatic%`, where each percentage comes from the tier that portion reaches.
+- **60% rule:** if at least 60% of the quarter's paid policies are automatic, the whole PCA is paid with the automatic percentage (tier chosen by total PCA).
 - Bonus is paid ONLY if BOTH PCA and ALL product requirements are met.
-- Payout: PCA × `agent_percentage` from the matching tier.
+- Payout details are exposed in `details`: `cash_pca`, `automatic_pca`, `cash_amount`, `automatic_amount`, `automatic_ratio`, `payment_strategy` (`split` | `automatic`).
 
 **Tier conditions:** `{"min_pca": 25000}`
 
@@ -155,10 +175,11 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 **Rules:**
 - Only applies to agents.
 - **Requires dependency:** `dependency_scheme_id` (typically `agent_first_year_production`). Evaluated dynamically by the calculator itself.
+- Only **vida** policies (`Vida`, `METALIFE`, `PERFECTLIFE` via `ProductAliasResolver`) are weighted; `PRIMORDIAL` policies are excluded from the weighted total and from the «Pólizas de vida totales» row.
 - Uses `pna_equivalences` to weight each policy by its PNA bracket.
 - Calculates weighted total, divides by 3 for monthly average (trimestral).
 - Tiers match on `[min_policies, max_policies]`.
-- Payout: PCA × `agent_percentage`.
+- Payout: PCA × `agent_percentage`. The PCA base still includes every paid policy (including Primordial).
 
 **Tier conditions:** `{"classification": "Plata", "min_policies": 2.0, "max_policies": 2.99}`
 
@@ -192,10 +213,10 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 
 **Product Alias:** "Vida" is an alias that groups two real products:
 ```
-"Vida" → ["METLIFE", "PERFECTLIFE"]
+"Vida" → ["METALIFE", "PERFECTLIFE"]
 ```
 
-When a scheme requires "Vida" (e.g., `requires_product: ["Vida"]`), the calculators count policies of both METLIFE and PERFECTLIFE toward the requirement. "PRIMORDIAL" is not aliased — it stands alone.
+When a scheme requires "Vida" (e.g., `requires_product: ["Vida"]`), the calculators count policies of both METALIFE and PERFECTLIFE toward the requirement. "PRIMORDIAL" is not aliased — it stands alone.
 
 Used by: `AgentFirstYearProductionCalculator`, `PromoterFirstYearProductionCalculator`.
 
@@ -357,7 +378,7 @@ namespace App\Services\BonusCalculators;
 trait ProductAliasResolver
 {
     protected array $productAliases = [
-        'Vida' => ['METLIFE', 'PERFECTLIFE'],
+        'Vida' => ['METALIFE', 'PERFECTLIFE'],
     ];
 
     protected function resolveProductAlias(string $productType): array
@@ -388,7 +409,7 @@ trait ProductAliasResolver
 
 ### AgentFirstYearProductionCalculator
 - PCA = sum of `premium_amount` for policies in first year where `status='Pagada'`
-- PCA is NOT computed as `max(0, premium - 1500)` — it's raw `premium_amount` sum
+- PCA is NOT computed as `max(0, premium - 1350)` — it's raw `premium_amount` sum
 - Primordial requirement queries ALL policies (not period-limited): `$agent->policies()->whereIn('product_type', $resolvedTypes)->where('status', 'Pagada')->count()`
 - Payout: `PCA × (agent_percentage / 100)` — no fixed_amount fallback used
 
@@ -399,6 +420,6 @@ trait ProductAliasResolver
 - Payout: `PP × (promoter_percentage / 100)`
 
 ### ConnectionBonusCalculator
-- Individual PCA = `sum('premium_amount')` per recruit (not max(0, premium - 1500))
+- Individual PCA = `sum('premium_amount')` per recruit (not max(0, premium - 1350))
 - Each tier's min_pca filters recruits individually
 - Payout: `totalQualifiedPca × (promoter_percentage / 100)`

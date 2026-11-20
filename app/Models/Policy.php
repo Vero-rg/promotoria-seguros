@@ -25,6 +25,18 @@ class Policy extends Model
         self::STATUS_PAGADA => 'blue',
     ];
 
+    /** Deducción fija sobre el PNA para obtener el PCA (por póliza). */
+    public const PCA_DEDUCTION = 1350.00;
+
+    public const PAYMENT_METHOD_CASH = 'Efectivo';
+
+    public const PAYMENT_METHOD_AUTOMATIC = 'Automático';
+
+    public const PAYMENT_METHODS = [
+        self::PAYMENT_METHOD_CASH,
+        self::PAYMENT_METHOD_AUTOMATIC,
+    ];
+
     protected $fillable = [
         'agent_id',
         'policy_number',
@@ -36,9 +48,11 @@ class Policy extends Model
         'promoter_commission_percentage',
         'promoter_commission_amount',
         'isr_retention',
+        'cedular_tax',
         'billing_retention',
         'status',
         'product_type',
+        'payment_method',
     ];
 
     protected $casts = [
@@ -47,6 +61,7 @@ class Policy extends Model
         'commission_amount' => 'decimal:2',
         'promoter_commission_amount' => 'decimal:2',
         'isr_retention' => 'decimal:2',
+        'cedular_tax' => 'decimal:2',
         'billing_retention' => 'decimal:2',
     ];
 
@@ -105,9 +120,21 @@ class Policy extends Model
         return $this->status === self::STATUS_ACTIVA;
     }
 
+    // ─── Montos ─────────────────────────────────────
+
+    /**
+     * Prima Computable Acumulada: PNA menos la deducción fija por póliza.
+     * Es la base para calcular comisiones y bonos.
+     */
+    public function pcaAmount(): float
+    {
+        return round(max(0, (float) $this->premium_amount - self::PCA_DEDUCTION), 2);
+    }
+
     /**
      * Calcula el monto neto de la comisión del agente después de
-     * deducciones por ISR y costo de facturación sobre la comisión.
+     * deducciones por ISR, impuesto cedular y costo de facturación,
+     * aplicadas secuencialmente sobre la comisión.
      *
      * Solo aplica si la póliza está en estatus Pagada; de lo contrario retorna 0.
      */
@@ -117,20 +144,13 @@ class Policy extends Model
             return 0.0;
         }
 
-        $agentComm = (float) $this->commission_amount;
-        $isrPct    = (float) ($this->isr_retention ?? 0);
-        $billPct   = (float) ($this->billing_retention ?? 0);
-
-        $isr           = $agentComm * ($isrPct / 100);
-        $afterIsr      = $agentComm - $isr;
-        $billing       = $afterIsr * ($billPct / 100);
-
-        return round($afterIsr - $billing, 2);
+        return $this->netCommissionAmount((float) $this->commission_amount);
     }
 
     /**
      * Calcula el monto neto de la comisión del promotor después de
-     * deducciones por ISR y costo de facturación sobre la comisión.
+     * deducciones por ISR, impuesto cedular y costo de facturación,
+     * aplicadas secuencialmente sobre la comisión.
      *
      * Solo aplica si la póliza está en estatus Pagada; de lo contrario retorna 0.
      */
@@ -140,15 +160,7 @@ class Policy extends Model
             return 0.0;
         }
 
-        $promoterComm = (float) $this->promoter_commission_amount;
-        $isrPct       = (float) ($this->isr_retention ?? 0);
-        $billPct      = (float) ($this->billing_retention ?? 0);
-
-        $isr           = $promoterComm * ($isrPct / 100);
-        $afterIsr      = $promoterComm - $isr;
-        $billing       = $afterIsr * ($billPct / 100);
-
-        return round($afterIsr - $billing, 2);
+        return $this->netCommissionAmount((float) $this->promoter_commission_amount);
     }
 
     /**
@@ -164,5 +176,21 @@ class Policy extends Model
         }
 
         return round($this->agentNetAmount() + $this->promoterNetAmount(), 2);
+    }
+
+    /**
+     * Deducciones secuenciales sobre una comisión: ISR → impuesto cedular → facturación.
+     */
+    private function netCommissionAmount(float $commissionAmount): float
+    {
+        $isrPct = (float) ($this->isr_retention ?? 0);
+        $cedularPct = (float) ($this->cedular_tax ?? 0);
+        $billingPct = (float) ($this->billing_retention ?? 0);
+
+        $afterIsr = $commissionAmount - ($commissionAmount * ($isrPct / 100));
+        $afterCedular = $afterIsr - ($afterIsr * ($cedularPct / 100));
+        $afterBilling = $afterCedular - ($afterCedular * ($billingPct / 100));
+
+        return round($afterBilling, 2);
     }
 }

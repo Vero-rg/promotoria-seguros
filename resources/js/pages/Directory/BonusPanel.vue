@@ -15,9 +15,12 @@
  *       amount, scheme_id, frequency, metric_base, requires_anticipos, tier_index,
  *       dependency_scheme_id, dependency_scheme_name,
  *       periodo_evaluado: string (ej. "01/01/2026 al 31/03/2026"),
- *       mostrar_alerta_periodo: bool (true si el periodo real > rango visual)
+ *       mostrar_alerta_periodo: bool (true si el periodo real > rango visual),
+ *       monthly_breakdown: Array (montos por mes de los bonos mensuales),
+ *       monthly_total: bool (true si el monto es la suma de varios meses)
  *   }
  */
+import MonthlyBonusBreakdown from './MonthlyBonusBreakdown.vue';
 import { CheckCircle2, Lock, Award, Info } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -42,9 +45,6 @@ const formatCurrency = (value) => {
  * Ejemplo: "TRIMESTRAL (PCA)", "MENSUAL (PNA)", "ANUAL (PP)"
  */
 const frequencyMetricTag = (bonus) => {
-    if (bonus.template_key === 'monthly_development') {
-        return 'MENSUAL (EVALUACIÓN TRIMESTRAL)';
-    }
     const freq = (bonus.frequency || 'mensual').toUpperCase();
     const metric = (bonus.metric_base || '—').toUpperCase();
     return `${freq} (${metric})`;
@@ -68,9 +68,24 @@ const isMonetaryLabel = (label) => {
     return label.includes('($)') || label.includes('PCA') || label.includes('PP') || label.includes('PNA');
 };
 
+/**
+ * Formatea el valor de una condición: los montos por mes (bonos mensuales
+ * agregados) siempre se muestran como moneda.
+ */
+const formatConditionValue = (condition) => {
+    if (condition._isMonthlyAmount) {
+        return formatCurrency(condition.current);
+    }
+    return formatMetricValue(condition.current, condition.target);
+};
+
 // ─── Helpers ────────────────────────────────────────
 const hasConditions = (bonus) => {
     return bonus.conditions && bonus.conditions.length > 0;
+};
+
+const hasMonthlyBreakdown = (bonus) => {
+    return Array.isArray(bonus.monthly_breakdown) && bonus.monthly_breakdown.length > 1;
 };
 
 const isLockedByDependency = (bonus, index) => {
@@ -161,17 +176,17 @@ const hasEffectiveConditions = (bonus) => {
                             <span class="text-gray-500">{{ cond.label }}</span>
                             <span class="font-medium flex items-center gap-1.5">
                                 <span :class="cond.met ? 'text-green-700' : 'text-red-600'">
-                                    {{ formatMetricValue(cond.current, cond.target) }}
+                                    {{ formatConditionValue(cond) }}
                                     <template v-if="cond.target > 0"> / {{ formatMetricValue(cond.target, cond.target) }}</template>
                                 </span>
-                                <span v-if="cond.met && cond.target > 0" class="text-green-600 text-[10px]">✓</span>
+                                <span v-if="cond.met && (cond.target > 0 || cond._isMonthlyAmount)" class="text-green-600 text-[10px]">✓</span>
                                 <span v-else-if="!cond.met && cond.target > 0" class="text-red-500 text-[10px] whitespace-nowrap">
                                     Falta {{ formatMetricValue(Math.max(0, cond.target - cond.current), cond.target) }}
                                 </span>
                             </span>
                         </div>
                         <!-- Barra de progreso -->
-                        <div class="w-full h-2 rounded-full overflow-hidden"
+                        <div v-if="!cond._isMonthlyAmount" class="w-full h-2 rounded-full overflow-hidden"
                             :class="cond.target > 0 ? 'bg-[#f5f0eb]' : 'bg-gray-200'">
                             <div class="h-full rounded-full transition-all duration-700"
                                 :class="cond.met ? 'bg-[#4a7c59]' : (cond.target > 0 ? 'bg-[#d9775b]' : 'bg-gray-300')"
@@ -209,8 +224,11 @@ const hasEffectiveConditions = (bonus) => {
 
                 <!-- Monto del bono si fue alcanzado -->
                 <div v-if="bonus.unlocked && bonus.amount > 0" class="text-xs text-green-700 font-medium text-right">
-                    Monto: {{ formatCurrency(bonus.amount) }}
+                    {{ bonus.monthly_total ? 'Total del periodo' : 'Monto' }}: {{ formatCurrency(bonus.amount) }}
                 </div>
+
+                <!-- Desglose mes a mes (bonos mensuales) -->
+                <MonthlyBonusBreakdown v-if="hasMonthlyBreakdown(bonus)" :months="bonus.monthly_breakdown" />
 
                 <!-- Alerta: periodo de evaluación más amplio que el rango visual -->
                 <div v-if="bonus.mostrar_alerta_periodo" class="flex items-start gap-1.5 px-2.5 py-1.5 bg-blue-50/60 border border-blue-100 rounded-lg text-[11px] text-blue-700">
@@ -255,16 +273,16 @@ const hasEffectiveConditions = (bonus) => {
                             <span class="text-gray-500">{{ cond.label }}</span>
                             <span class="font-medium flex items-center gap-1.5">
                                 <span :class="cond.met ? 'text-green-700' : 'text-red-600'">
-                                    {{ formatMetricValue(cond.current, cond.target) }}
+                                    {{ formatConditionValue(cond) }}
                                     <template v-if="cond.target > 0"> / {{ formatMetricValue(cond.target, cond.target) }}</template>
                                 </span>
-                                <span v-if="cond.met && cond.target > 0" class="text-green-600 text-[10px]">✓</span>
+                                <span v-if="cond.met && (cond.target > 0 || cond._isMonthlyAmount)" class="text-green-600 text-[10px]">✓</span>
                                 <span v-else-if="!cond.met && cond.target > 0" class="text-red-500 text-[10px] whitespace-nowrap">
                                     Falta {{ formatMetricValue(Math.max(0, cond.target - cond.current), cond.target) }}
                                 </span>
                             </span>
                         </div>
-                        <div class="w-full h-2 rounded-full overflow-hidden"
+                        <div v-if="!cond._isMonthlyAmount" class="w-full h-2 rounded-full overflow-hidden"
                             :class="cond.target > 0 ? 'bg-[#f5f0eb]' : 'bg-gray-200'">
                             <div class="h-full rounded-full transition-all duration-700"
                                 :class="cond.met ? 'bg-[#4a7c59]' : (cond.target > 0 ? 'bg-[#d9775b]' : 'bg-gray-300')"
@@ -281,8 +299,11 @@ const hasEffectiveConditions = (bonus) => {
 
                 <!-- Monto del bono si fue alcanzado -->
                 <div v-if="bonus.unlocked && bonus.amount > 0" class="text-xs text-green-700 font-medium text-right">
-                    Monto: {{ formatCurrency(bonus.amount) }}
+                    {{ bonus.monthly_total ? 'Total del periodo' : 'Monto' }}: {{ formatCurrency(bonus.amount) }}
                 </div>
+
+                <!-- Desglose mes a mes (bonos mensuales) -->
+                <MonthlyBonusBreakdown v-if="hasMonthlyBreakdown(bonus)" :months="bonus.monthly_breakdown" />
 
                 <!-- Alerta: periodo de evaluación más amplio que el rango visual -->
                 <div v-if="bonus.mostrar_alerta_periodo" class="flex items-start gap-1.5 px-2.5 py-1.5 bg-blue-50/60 border border-blue-100 rounded-lg text-[11px] text-blue-700">

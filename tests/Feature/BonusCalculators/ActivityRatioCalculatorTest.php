@@ -229,6 +229,56 @@ class ActivityRatioCalculatorTest extends TestCase
         $this->assertEquals(0.0, $result['progress']['current_value']);
     }
 
+    /**
+     * 🟢 Solo las pólizas de vida (Vida, METALIFE, PERFECTLIFE) se ponderan;
+     *    las Primordial no suman peso ni cuentan en «Pólizas de vida totales».
+     *
+     * Vida: 3 × $50K → 1.0 c/u = 3.0 → promedio 1.0 → Activo 12 (2%).
+     * Primordial: 2 × $150K → ignoradas (sin filtro darían 7.0 → 7%).
+     * PCA (base de pago) sí incluye todas: 3 × $50K + 2 × $150K = $450K.
+     */
+    public function test_primordial_policies_are_excluded_from_weighted_total(): void
+    {
+        $scheme = $this->createActivityRatioScheme();
+        $agent  = Agent::factory()->create();
+        $period = $this->defaultPeriod();
+
+        foreach (['Vida', 'METALIFE', 'PERFECTLIFE'] as $productType) {
+            Policy::factory()->withPremium(50_000)
+                ->for($agent)
+                ->create([
+                    'issue_date'   => '2026-03-01',
+                    'status'       => Policy::STATUS_PAGADA,
+                    'product_type' => $productType,
+                ]);
+        }
+
+        for ($i = 0; $i < 2; $i++) {
+            Policy::factory()->primordial()->withPremium(150_000)
+                ->for($agent)
+                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
+        }
+
+        $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved']);
+
+        // Solo las 3 pólizas de vida ponderan
+        $this->assertEquals(3.0, $result['details']['weighted_total']);
+        $this->assertEquals(1.0, $result['progress']['current_value']);
+        $this->assertEquals(2.0, (float) $result['tier_data']['agent_percentage']); // Activo 12
+
+        // La base de pago (PCA) sigue considerando todas las pólizas
+        $this->assertEquals(450_000.0, $result['details']['pca']);
+        $this->assertEquals(9_000.0, $result['amount']); // $450K × 2%
+
+        $vidaRow = collect($result['progress_breakdown'])
+            ->firstWhere('label', 'Pólizas de vida totales');
+
+        $this->assertNotNull($vidaRow, 'Debe existir la fila «Pólizas de vida totales».');
+        $this->assertEquals(3, $vidaRow['current']);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // 🟡 TEST ADICIONAL
     // ═══════════════════════════════════════════════════════════════════════

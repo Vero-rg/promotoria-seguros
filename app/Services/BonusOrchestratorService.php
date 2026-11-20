@@ -54,6 +54,10 @@ class BonusOrchestratorService
      * @param  Carbon          $periodEnd        Fin del periodo (referencia para consulta).
      * @param  Carbon|null     $visualRangeStart Inicio del rango visual (UI). Si es null, se usa $periodStart.
      * @param  Carbon|null     $visualRangeEnd   Fin del rango visual (UI). Si es null, se usa $periodEnd.
+     * @param  bool            $monthlyView      Si es true, los bonos se evalúan mes a mes dentro
+     *                                           del rango visual: los mensuales se suman por mes
+     *                                           (con desglose), y los trimestrales/anuales se
+     *                                           limitan al mes cuando el rango es de un solo mes.
      *
      * @return array{...}
      */
@@ -63,6 +67,7 @@ class BonusOrchestratorService
         Carbon $periodEnd,
         ?Carbon $visualRangeStart = null,
         ?Carbon $visualRangeEnd = null,
+        bool $monthlyView = false,
     ): array {
         // ── Rango visual (lo que el usuario ve en la UI) ──────────────
         $visualStart = $visualRangeStart ?? $periodStart;
@@ -84,9 +89,6 @@ class BonusOrchestratorService
         $achievedMap  = [];   // scheme_id => bool (si fue alcanzado)
 
         foreach ($orderedSchemes as $scheme) {
-            // ═══ Resolver periodo efectivo según frecuencia del bono ═════
-            $effectivePeriod = $this->resolveEffectivePeriod($scheme, $periodEnd);
-
             // ═══ Verificación de dependencia ═══════════════════════════════
             $dependencyAchieved = true; // Sin dependencia → siempre true
             $dependencyName     = null;
@@ -99,7 +101,7 @@ class BonusOrchestratorService
                 if ($depScheme === null || !isset($achievedMap[$depScheme->id])) {
                     // La dependencia no ha sido evaluada aún (no debería ocurrir
                     // con el ordenamiento topológico, pero nos curamos en salud).
-                    $results[] = $this->skipResult($scheme, "Dependencia ({$depTemplateKey}) no evaluada.", $effectivePeriod, $visualStart, $visualEnd, $dependencyName);
+                    $results[] = $this->skipResult($scheme, "Dependencia ({$depTemplateKey}) no evaluada.", $this->resolveEffectivePeriod($scheme, $visualEnd), $visualStart, $visualEnd, $dependencyName);
                     continue;
                 }
 
@@ -111,50 +113,25 @@ class BonusOrchestratorService
                 $calculator = $this->factory->make($scheme->template_key);
             } catch (\InvalidArgumentException $e) {
                 Log::warning("BonusOrchestrator: {$e->getMessage()}");
-                $results[] = $this->skipResult($scheme, 'Calculadora no encontrada.', $effectivePeriod, $visualStart, $visualEnd);
+                $results[] = $this->skipResult($scheme, 'Calculadora no encontrada.', $this->resolveEffectivePeriod($scheme, $visualEnd), $visualStart, $visualEnd);
                 continue;
             }
 
             // Asegurar que las relaciones necesarias estén cargadas
             $scheme->loadMissing(['versions.tiers']);
 
-            // ═══ Calcular con el periodo EFECTIVO (expandido por frecuencia) ═══
-            $calcResult = $calculator->calculate(
-                $user,
-                $scheme,
-                $effectivePeriod['start'],
-                $effectivePeriod['end']
-            );
+            // ═══ Evaluar con el periodo correspondiente (mes / trimestre / año) ═══
+            $evaluation      = $this->evaluateScheme($user, $scheme, $calculator, $visualStart, $visualEnd, $monthlyView);
+            $effectivePeriod = $evaluation['period'];
 
             // ═══ Si la dependencia no fue alcanzada, el bono falla
             //      automáticamente, pero AUN ASÍ mostramos el progreso
             //      de sus métricas para que el usuario vea qué le falta. ═══
             if (! $dependencyAchieved) {
-                $calcResult['is_achieved'] = false;
-                $calcResult['amount']      = 0.0;
-                $calcResult['tier_index']  = null;
-                $calcResult['tier_data']   = null;
-
-                // Prependemos la barra de dependencia al progress_breakdown
-                $depCondition = [
-                    'label'   => $dependencyName ?? 'Bono Prerequisite',
-                    'current' => 0,
-                    'target'  => 1,
-                    'met'     => false,
-                    '_isDependency' => true,
-                ];
-                $existingBreakdown = $calcResult['progress_breakdown'] ?? [];
-
-                // Si ya existe una barra de dependencia idéntica al inicio,
-                // la reemplazamos; si no, la insertamos.
-                $firstItem = $existingBreakdown[0] ?? null;
-                if ($firstItem && ($firstItem['label'] ?? '') === ($dependencyName ?? '')) {
-                    $existingBreakdown[0] = $depCondition;
-                } else {
-                    array_unshift($existingBreakdown, $depCondition);
-                }
-                $calcResult['progress_breakdown'] = $existingBreakdown;
+                $evaluation = $this->applyDependencyBlock($evaluation, $dependencyName);
             }
+
+            $calcResult = $evaluation['result'];
 
             // Enriquecer el resultado con metadata del esquema
             $calcResult['scheme_id']          = $scheme->id;
@@ -179,6 +156,10 @@ class BonusOrchestratorService
             $calcResult['effective_period_end']   = $effectivePeriod['end']->toDateString();
             $calcResult['visual_period_start']    = $visualStart->toDateString();
             $calcResult['visual_period_end']      = $visualEnd->toDateString();
+
+            // ── Desglose mes a mes (solo bonos mensuales en rangos multi-mes) ──
+            $calcResult['monthly_breakdown'] = $this->buildMonthlyBreakdown($evaluation['months']);
+            $calcResult['monthly_total']     = count($evaluation['months']) > 1;
 
             $results[]     = $calcResult;
             $achievedMap[$scheme->id] = $calcResult['is_achieved'];
@@ -476,7 +457,241 @@ class BonusOrchestratorService
             'effective_period_end'   => $effEnd?->toDateString(),
             'visual_period_start'    => $visualStart?->toDateString(),
             'visual_period_end'      => $visualEnd?->toDateString(),
+            'monthly_breakdown'      => [],
+            'monthly_total'          => false,
         ];
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ── Helpers de Evaluación (desglose mensual) ──────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Evalúa un esquema resolviendo su periodo según la frecuencia y el modo
+     * de desglose mensual.
+     *
+     * Reglas cuando $monthlyView es true:
+     *   - Bonos mensuales → se evalúan mes a mes dentro del rango visual y se suman.
+     *   - Bonos trimestrales/anuales → si el rango visual abarca un solo mes,
+     *     se evalúan SOLO con ese mes; si no, se evalúan sobre el periodo
+     *     completo de su frecuencia (trimestre / año).
+     *
+     * @return array{result: array, period: array{start: Carbon, end: Carbon}, months: array<int, array>}
+     */
+    private function evaluateScheme(
+        Agent|Promoter $user,
+        Scheme $scheme,
+        BonusCalculatorInterface $calculator,
+        Carbon $visualStart,
+        Carbon $visualEnd,
+        bool $monthlyView,
+    ): array {
+        if ($monthlyView && $this->isMonthlyScheme($scheme)) {
+            return $this->evaluateMonthlyScheme($user, $scheme, $calculator, $visualStart, $visualEnd);
+        }
+
+        $period = ($monthlyView && $this->isSingleMonthRange($visualStart, $visualEnd))
+            ? $this->resolveMonthPeriod($visualEnd)
+            : $this->resolveEffectivePeriod($scheme, $visualEnd);
+
+        return [
+            'result' => $calculator->calculate($user, $scheme, $period['start'], $period['end']),
+            'period' => $period,
+            'months' => [],
+        ];
+    }
+
+    /**
+     * Evalúa un bono mensual mes a mes y devuelve la suma como resultado principal.
+     *
+     * Cuando el rango visual abarca un solo mes se conserva el resultado tal cual
+     * (sin desglose). Cuando abarca varios meses se retorna el agregado y el
+     * detalle de cada mes para que el frontend lo despliegue.
+     *
+     * @return array{result: array, period: array{start: Carbon, end: Carbon}, months: array<int, array>}
+     */
+    private function evaluateMonthlyScheme(
+        Agent|Promoter $user,
+        Scheme $scheme,
+        BonusCalculatorInterface $calculator,
+        Carbon $visualStart,
+        Carbon $visualEnd,
+    ): array {
+        $months = [];
+
+        foreach ($this->splitIntoMonths($visualStart, $visualEnd) as $bucket) {
+            $months[] = [
+                'month'  => $bucket['start']->format('Y-m'),
+                'label'  => $this->monthLabel($bucket['start']),
+                'start'  => $bucket['start'],
+                'end'    => $bucket['end'],
+                'result' => $calculator->calculate($user, $scheme, $bucket['start'], $bucket['end']),
+            ];
+        }
+
+        $lastMonth = end($months);
+
+        return [
+            'result' => count($months) === 1
+                ? $months[0]['result']
+                : $this->aggregateMonthlyResults($months),
+            'period' => [
+                'start' => $months[0]['start'],
+                'end'   => $lastMonth['end'],
+            ],
+            'months' => count($months) > 1 ? $months : [],
+        ];
+    }
+
+    /**
+     * Suma los resultados mensuales en un único resultado consolidado.
+     *
+     * El monto es la suma de los meses y el bono se considera desbloqueado si
+     * al menos un mes lo estuvo. El breakdown muestra una línea por mes con el
+     * monto generado, de modo que al colapsar la tarjeta se vea «cuánto obtuvo
+     * de cada mes».
+     *
+     * @param  array<int, array>  $months
+     */
+    private function aggregateMonthlyResults(array $months): array
+    {
+        $totalAmount   = 0.0;
+        $achievedCount = 0;
+        $breakdown     = [];
+
+        foreach ($months as $entry) {
+            $amount = (float) ($entry['result']['amount'] ?? 0);
+            $totalAmount += $amount;
+
+            if ($entry['result']['is_achieved'] ?? false) {
+                $achievedCount++;
+            }
+
+            $breakdown[] = [
+                'label'            => $entry['label'],
+                'current'          => round($amount, 2),
+                'target'           => 0,
+                'met'              => (bool) ($entry['result']['is_achieved'] ?? false),
+                '_isMonthlyAmount' => true,
+            ];
+        }
+
+        return [
+            'is_achieved' => $achievedCount > 0,
+            'amount'      => round($totalAmount, 2),
+            'tier_index'  => null,
+            'tier_data'   => null,
+            'progress'    => [
+                'metric_label'   => 'Monto acumulado por mes',
+                'current_value'  => round($totalAmount, 2),
+                'required_value' => 0.0,
+            ],
+            'progress_breakdown' => $breakdown,
+            'details'            => [
+                'monthly'         => array_map(fn (array $entry) => [
+                    'month'       => $entry['month'],
+                    'amount'      => (float) ($entry['result']['amount'] ?? 0),
+                    'is_achieved' => (bool) ($entry['result']['is_achieved'] ?? false),
+                ], $months),
+                'achieved_months' => $achievedCount,
+                'total_months'    => count($months),
+            ],
+        ];
+    }
+
+    /**
+     * Anula un bono cuyo prerequisite no fue alcanzado, conservando el progreso
+     * de sus métricas para que el usuario vea qué le falta.
+     *
+     * @param  array{result: array, period: array, months: array}  $evaluation
+     * @return array{result: array, period: array, months: array}
+     */
+    private function applyDependencyBlock(array $evaluation, ?string $dependencyName): array
+    {
+        $depLabel = $dependencyName ?? 'Bono Prerequisite';
+
+        // Si es un bono mensual agregado, se reconstruye el breakdown con montos
+        // en cero para no mostrar cantidades que no se pagarán.
+        $breakdown = [];
+        if (!empty($evaluation['months'])) {
+            foreach ($evaluation['months'] as $entry) {
+                $breakdown[] = [
+                    'label'            => $entry['label'],
+                    'current'          => 0.0,
+                    'target'           => 0,
+                    'met'              => false,
+                    '_isMonthlyAmount' => true,
+                ];
+            }
+        } else {
+            $breakdown = $evaluation['result']['progress_breakdown'] ?? [];
+        }
+
+        $depCondition = [
+            'label'         => $depLabel,
+            'current'       => 0,
+            'target'        => 1,
+            'met'           => false,
+            '_isDependency' => true,
+        ];
+
+        $firstItem = $breakdown[0] ?? null;
+        if ($firstItem && ($firstItem['label'] ?? '') === $depLabel) {
+            $breakdown[0] = $depCondition;
+        } else {
+            array_unshift($breakdown, $depCondition);
+        }
+
+        $result = $evaluation['result'];
+        $result['is_achieved']       = false;
+        $result['amount']            = 0.0;
+        $result['tier_index']        = null;
+        $result['tier_data']         = null;
+        $result['progress_breakdown'] = $breakdown;
+        $evaluation['result']        = $result;
+
+        foreach ($evaluation['months'] as $index => $entry) {
+            $entry['result']['is_achieved'] = false;
+            $entry['result']['amount']      = 0.0;
+            $evaluation['months'][$index]   = $entry;
+        }
+
+        return $evaluation;
+    }
+
+    /**
+     * Construye el desglose mensual consumible por el frontend.
+     *
+     * @param  array<int, array>  $months  Entradas de evaluateMonthlyScheme().
+     * @return array<int, array>
+     */
+    private function buildMonthlyBreakdown(array $months): array
+    {
+        return array_map(function (array $entry) {
+            $result = $entry['result'];
+
+            $conditions = [];
+            foreach ($result['progress_breakdown'] ?? [] as $item) {
+                $conditions[] = [
+                    'label'   => $item['label']   ?? '—',
+                    'current' => $item['current'] ?? 0,
+                    'target'  => $item['target']  ?? 0,
+                    'met'     => $item['met']     ?? false,
+                ];
+            }
+
+            return [
+                'month'        => $entry['month'],
+                'label'        => $entry['label'],
+                'period_label' => $this->formatPeriodLabel(
+                    $entry['start']->toDateString(),
+                    $entry['end']->toDateString(),
+                ),
+                'unlocked'     => (bool) ($result['is_achieved'] ?? false),
+                'amount'       => (float) ($result['amount'] ?? 0),
+                'conditions'   => $conditions,
+            ];
+        }, $months);
     }
 
     /**
@@ -490,6 +705,8 @@ class BonusOrchestratorService
      *   - conditions: array<{label, current, target}>
      *   - periodo_evaluado: string — rango real usado por el motor
      *   - mostrar_alerta_periodo: bool — true si el periodo real es más amplio que el visual
+     *   - monthly_breakdown: array — montos por mes de los bonos mensuales
+     *   - monthly_total: bool — true si el monto es la suma de varios meses
      *
      * @param  array  $orchestratorResult  El retorno de $this->calculateAll().
      * @return array<int, array>
@@ -515,6 +732,7 @@ class BonusOrchestratorService
                         'target'  => $item['target']  ?? 0,
                         'met'     => $item['met']     ?? false,
                         '_isDependency' => $item['_isDependency'] ?? false,
+                        '_isMonthlyAmount' => $item['_isMonthlyAmount'] ?? false,
                     ];
                 }
             } else {
@@ -567,6 +785,9 @@ class BonusOrchestratorService
                 // ── Periodo de evaluación (nuevo) ────────────────────
                 'periodo_evaluado'       => $periodoEvaluado,
                 'mostrar_alerta_periodo'  => $mostrarAlertaPeriodo,
+                // ── Desglose mes a mes (bonos mensuales en rangos multi-mes) ──
+                'monthly_breakdown'      => $result['monthly_breakdown'] ?? [],
+                'monthly_total'          => (bool) ($result['monthly_total'] ?? false),
             ];
         }, $results, array_keys($results)));
     }
@@ -604,6 +825,72 @@ class BonusOrchestratorService
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
+     * Indica si el esquema se liquida mes a mes.
+     *
+     * Aplica a los bonos de frecuencia «mensual» y al Bono de Desarrollo
+     * Mensual (que comercialmente se evalúa por trimestre).
+     */
+    private function isMonthlyScheme(Scheme $scheme): bool
+    {
+        if (strtolower(trim((string) $scheme->frequency)) === 'mensual') {
+            return true;
+        }
+
+        return $scheme->template_key === 'monthly_development';
+    }
+
+    /**
+     * Indica si el rango visual abarca un único mes calendario.
+     */
+    private function isSingleMonthRange(Carbon $start, Carbon $end): bool
+    {
+        return $start->format('Y-m') === $end->format('Y-m');
+    }
+
+    /**
+     * Divide un rango de fechas en meses calendario completos.
+     *
+     * @return array<int, array{start: Carbon, end: Carbon}>
+     */
+    private function splitIntoMonths(Carbon $start, Carbon $end): array
+    {
+        $buckets = [];
+        $cursor  = $start->copy()->startOfMonth();
+        $last    = $end->copy()->startOfMonth();
+
+        while ($cursor->lessThanOrEqualTo($last)) {
+            $buckets[] = [
+                'start' => $cursor->copy()->startOfMonth(),
+                'end'   => $cursor->copy()->endOfMonth(),
+            ];
+            $cursor->addMonthNoOverflow()->startOfMonth();
+        }
+
+        return $buckets;
+    }
+
+    /**
+     * Resuelve el periodo correspondiente al mes calendario de una fecha.
+     *
+     * @return array{start: Carbon, end: Carbon}
+     */
+    private function resolveMonthPeriod(Carbon $referenceDate): array
+    {
+        return [
+            'start' => $referenceDate->copy()->startOfMonth(),
+            'end'   => $referenceDate->copy()->endOfMonth(),
+        ];
+    }
+
+    /**
+     * Etiqueta legible de un mes, ej. «Enero 2026».
+     */
+    private function monthLabel(Carbon $date): string
+    {
+        return ucfirst($date->copy()->locale('es')->translatedFormat('F Y'));
+    }
+
+    /**
      * Resuelve el periodo efectivo de evaluación para un esquema de bono
      * según su frecuencia configurada.
      *
@@ -615,6 +902,9 @@ class BonusOrchestratorService
      * Esto garantiza que los bonos trimestrales/anuales siempre evalúen
      * el periodo acumulado completo, independientemente del rango visual
      * que el usuario tenga seleccionado en la UI.
+     *
+     * Nota: los bonos mensuales se resuelven mes a mes en evaluateScheme()
+     * cuando el orquestador corre en modo $monthlyView.
      *
      * @param  Scheme  $scheme         Esquema de bono (contiene $scheme->frequency).
      * @param  Carbon  $referenceDate  Fecha de referencia (normalmente el fin del rango visual).

@@ -75,7 +75,7 @@ Schemes support **versioning** (time-based effective dates) and **tiered conditi
 |-------|---------|---------|
 | `metric_base` | Which metric to use: PCA, PP, or PNA | `PCA` |
 | `frequency` | Payment frequency: única, mensual, trimestral, anual | `trimestral` |
-| `requires_product` | Array of `{product_type, min_count}` objects. Each product has its own minimum count. Valid types: `"Vida"` (alias for METLIFE + PERFECTLIFE), `"PRIMORDIAL"`. Max 2 entries. | `[{"product_type":"PRIMORDIAL","min_count":3}]` |
+| `requires_product` | Array of `{product_type, min_count}` objects. Each product has its own minimum count. Valid types: `"Vida"` (alias for METALIFE + PERFECTLIFE), `"PRIMORDIAL"`. Max 2 entries. | `[{"product_type":"PRIMORDIAL","min_count":3}]` |
 | `min_product_count` | Minimum policies of required type | `3` |
 | `requires_mix` | Must sell multiple product types | `true` |
 | `dependency_scheme_id` | Prerequisite bonus's `template_key` | `"agent_first_year_production"` |

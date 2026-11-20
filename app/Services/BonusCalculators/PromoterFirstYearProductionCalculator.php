@@ -298,7 +298,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
 
     /**
      * Cuenta las pólizas de un tipo de producto específico en el periodo.
-     * Soporta alias: 'Vida' cuenta METLIFE + PERFECTLIFE.
+     * Soporta alias: 'Vida' cuenta METALIFE + PERFECTLIFE.
      */
     private function countPoliciesByType(Promoter $promoter, string $productType, Carbon $start, Carbon $end): int
     {

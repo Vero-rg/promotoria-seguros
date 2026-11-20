@@ -405,7 +405,7 @@ php artisan queue:listen --tries=1
 3. **Spanish in code.** Variable names, method names, classes, comments — all English. Spanish is ONLY for user-facing strings.
 4. **Title Case or ALL CAPS in user-facing text.** Always sentence case in Spanish: `"Póliza creada exitosamente."`, never `"PÓLIZA CREADA EXITOSAMENTE"`.
 5. **Direct `new` instantiation of services in controllers.** Use dependency injection via constructor or method injection.
-6. **Hardcoded product types.** Currently `METLIFE`, `PERFECTLIFE`, `PRIMORDIAL` appear as string literals across many files. When adding product-related code, prefer extracting constants or a config/table.
+6. **Hardcoded product types.** Currently `METALIFE`, `PERFECTLIFE`, `PRIMORDIAL` appear as string literals across many files. When adding product-related code, prefer extracting constants or a config/table.
 7. **Silently swallowing exceptions.** Always log errors: `Log::warning(...)` or `Log::error(...)`.
 8. **Overriding existing behavior in `BonusCalculatorFactory` without adding tests.** The Strategy pattern depends on correct factory resolution.
 9. **Creating routes in a single massive file.** New routes go in `routes/web/{module}.php` and are loaded from `routes/web.php`.
@@ -420,7 +420,7 @@ When you touch these areas, clean them up:
 - **`PromoterController@show`**: Manual commission calculation duplicates logic from `PolicyController::getProductCommissionMap()`.
 - **`CommissionService`** (`app/Services/CommissionService.php`): Legacy service that references schema fields that no longer exist (`code`). Audit before removing.
 - **Duplicate bonus evaluation logic** between `DashboardController` and `PromoterController@show` / `AgentController@show`. Extract to a shared service.
-- **Hardcoded product type arrays** in `DashboardController` (METLIFE, PERFECTLIFE, PRIMORDIAL). Move to config or a constant.
+- **Hardcoded product type arrays** in `DashboardController` (METALIFE, PERFECTLIFE, PRIMORDIAL). Move to config or a constant.
 
 ---
 
@@ -432,13 +432,13 @@ The compensation engine is the most complex part of the app. See `docs/context/0
 - **Strategy Pattern:** Each bonus type has its own calculator implementing `BonusCalculatorInterface`.
 - **Factory:** `BonusCalculatorFactory` maps `template_key` strings to calculator classes. Both English keys and Spanish display names are mapped.
 - **Orchestrator:** `BonusOrchestratorService` handles dependency resolution (bonus A must be achieved before bonus B), period expansion (monthly → full month, trimestral → full quarter), and result consolidation.
-- **Product Aliases:** The `ProductAliasResolver` trait maps the alias `"Vida"` → `["METLIFE", "PERFECTLIFE"]`. When a scheme requires "Vida", both products count.
+- **Product Aliases:** The `ProductAliasResolver` trait maps the alias `"Vida"` → `["METALIFE", "PERFECTLIFE"]`. When a scheme requires "Vida", both products count.
 
 ### Metrics Glossary
 | Abbreviation | Spanish | Definition |
 |-------------|---------|------------|
 | PNA | Prima Neta Acumulada | Total gross premium (sum of `premium_amount`) |
-| PCA | Prima Computable Acumulada | PNA minus $1,500 per policy |
+| PCA | Prima Computable Acumulada | PNA minus $1,350 per policy |
 | PP | Producción Primaria | Primary production (sum of premiums in period) |
 | IRP | Índice de Retención de Pólizas | Policy retention index (active / total × 100) |
 | ISR | Impuesto Sobre la Renta | Income tax retention (default 10%) |

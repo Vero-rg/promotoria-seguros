@@ -15,7 +15,7 @@ use Carbon\Carbon;
  *
  * REGLAS DE NEGOCIO:
  *   1. El Agente DEBE haber ganado el bono prerequisite (dependency_scheme_id).
- *   2. Cada póliza se pondera según su PNA (pna_equivalences del esquema):
+ *   2. Cada póliza de VIDA se pondera según su PNA (pna_equivalences del esquema):
  *      - $16,000–$20,999 → 0.5 pólizas
  *      - $21,000–$59,999 → 1.0 póliza
  *      - $60,000–$119,999 → 1.5 pólizas
@@ -25,6 +25,10 @@ use Carbon\Carbon;
  *   4. El tier se elige por promedio mensual en [min_policies, max_policies].
  *   5. Base de pago: PCA del agente en el periodo.
  *
+ * Solo las pólizas de vida (METALIFE + PERFECTLIFE) participan en la
+ * ponderación; las de PRIMORDIAL no suman peso ni cuentan en «Pólizas de
+ * vida totales». La PCA (base de pago) sigue considerando todas las pólizas.
+ *
  * Condiciones leídas de $tier->conditions:
  *   - classification  (string)    Etiqueta del tier (informativa).
  *   - min_policies    (float)     Promedio mensual mínimo.
@@ -32,6 +36,10 @@ use Carbon\Carbon;
  */
 class ActivityRatioCalculator implements BonusCalculatorInterface
 {
+    use ProductAliasResolver;
+
+    /** Alias de producto que agrupa las pólizas ponderables. */
+    private const VIDA_ALIAS = 'Vida';
     /**
      * {@inheritDoc}
      */
@@ -135,8 +143,8 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                             '_isDependency' => true,
                         ],
                         [
-                            'label'   => 'Pólizas Totales',
-                            'current' => $this->getRawPolicyCount($user, $periodStart, $periodEnd),
+                            'label'   => 'Pólizas de vida totales',
+                            'current' => $this->getVidaPolicyCount($user, $periodStart, $periodEnd),
                             'target'  => 0,
                             'met'     => true,
                         ],
@@ -175,7 +183,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
             reason: "Promedio mensual: {$monthlyAverage} — sin tier coincidente.",
             monthlyAverage: $monthlyAverage,
             weightedTotal: $weightedTotal,
-            rawCount: $this->getRawPolicyCount($user, $periodStart, $periodEnd),
+            rawCount: $this->getVidaPolicyCount($user, $periodStart, $periodEnd),
             pca: $pca,
             minRequired: $tiers->last()?->conditions['min_policies'] ?? 0,
             prerequisiteName: $prerequisiteName,
@@ -186,7 +194,10 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
     // ── Helpers ─────────────────────────────────────────────────────────
 
     /**
-     * Calcula el total de pólizas ponderadas según las equivalencias PNA.
+     * Calcula el total de pólizas de vida ponderadas según las equivalencias PNA.
+     *
+     * Solo se consideran pólizas de vida (METALIFE + PERFECTLIFE); las
+     * Primordial quedan fuera de la ponderación.
      *
      * @param  Agent  $agent
      * @param  array  $equivalences  Esquema de equivalencias PNA del Scheme.
@@ -201,6 +212,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
         $policies = $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->whereIn('product_type', $this->resolveProductAlias(self::VIDA_ALIAS))
             ->get();
 
         if ($policies->isEmpty() || empty($equivalences)) {
@@ -249,13 +261,14 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
     }
 
     /**
-     * Cuenta las pólizas sin ponderar (solo para progreso informativo).
+     * Cuenta las pólizas de vida sin ponderar (solo para progreso informativo).
      */
-    private function getRawPolicyCount(Agent $agent, Carbon $start, Carbon $end): int
+    private function getVidaPolicyCount(Agent $agent, Carbon $start, Carbon $end): int
     {
         return $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->whereIn('product_type', $this->resolveProductAlias(self::VIDA_ALIAS))
             ->count();
     }
 
@@ -315,7 +328,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
         }
 
         $breakdown[] = [
-            'label'   => 'Pólizas Totales',
+            'label'   => 'Pólizas de vida totales',
             'current' => $rawCount,
             'target'  => 0,
             'met'     => $rawCount > 0,

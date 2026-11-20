@@ -56,7 +56,7 @@ const breadcrumbs = [
 ];
 
 const productLabels = {
-    'METLIFE': 'Vida (METLIFE)',
+    'METALIFE': 'Vida (METALIFE)',
     'PERFECTLIFE': 'Vida (PERFECTLIFE)',
     'PRIMORDIAL': 'Primordial',
     '1': 'Producto 1', '2': 'Producto 2', '3': 'Producto 3',

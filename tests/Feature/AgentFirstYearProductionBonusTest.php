@@ -114,25 +114,25 @@ class AgentFirstYearProductionBonusTest extends TestCase
     }
 
     /** @test */
-    public function bonus_unlocks_with_vida_alias_resolving_to_metlife_and_perfectlife()
+    public function bonus_unlocks_with_vida_alias_resolving_to_metalife_and_perfectlife()
     {
         $agent = Agent::factory()->create([
             'created_at' => Carbon::now()->subMonths(3),
         ]);
 
-        // 2 METLIFE + 1 PERFECTLIFE = 3 "Vida" policies
+        // 2 METALIFE + 1 PERFECTLIFE = 3 "Vida" policies
         Policy::factory()->create([
             'agent_id' => $agent->id,
             'status' => 'Pagada',
             'premium_amount' => 20000,
-            'product_type' => 'METLIFE',
+            'product_type' => 'METALIFE',
             'issue_date' => Carbon::now()->subDays(1),
         ]);
         Policy::factory()->create([
             'agent_id' => $agent->id,
             'status' => 'Pagada',
             'premium_amount' => 20000,
-            'product_type' => 'METLIFE',
+            'product_type' => 'METALIFE',
             'issue_date' => Carbon::now()->subDays(2),
         ]);
         Policy::factory()->create([
@@ -155,7 +155,7 @@ class AgentFirstYearProductionBonusTest extends TestCase
             Carbon::now()->endOfQuarter()
         );
 
-        $this->assertTrue($result['is_achieved'], 'Bonus should unlock with 3 Vida (METLIFE+PERFECTLIFE)');
+        $this->assertTrue($result['is_achieved'], 'Bonus should unlock with 3 Vida (METALIFE+PERFECTLIFE)');
         $this->assertGreaterThan(0, $result['amount']);
     }
 
@@ -180,7 +180,7 @@ class AgentFirstYearProductionBonusTest extends TestCase
             'agent_id' => $agent->id,
             'status' => 'Pagada',
             'premium_amount' => 20000,
-            'product_type' => 'METLIFE',
+            'product_type' => 'METALIFE',
             'issue_date' => Carbon::now()->subDays(4),
         ]);
 
