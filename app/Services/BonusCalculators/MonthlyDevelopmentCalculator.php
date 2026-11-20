@@ -229,6 +229,9 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                 'current_quarter'        => $currentQuarter ?? null,
                 'matched_agents'         => $matchedAgents,
                 'total_agents_evaluated' => $agents->count(),
+                'metrics'                => [
+                    'min_pca' => (float) ($matchedAgents[0]['pca'] ?? 0),
+                ],
             ],
         ];
     }
@@ -410,6 +413,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                 'reason'                => $reason,
                 'collection_efficiency' => $collectionEfficiency,
                 'quarterly_recruits'    => $quarterlyRecruits,
+                'metrics'               => ['min_pca' => 0.0],
             ],
         ];
     }

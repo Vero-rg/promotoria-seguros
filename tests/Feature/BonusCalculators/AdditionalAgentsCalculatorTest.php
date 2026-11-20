@@ -6,8 +6,8 @@ use App\Models\Agent;
 use App\Models\Policy;
 use App\Models\Promoter;
 use App\Models\Scheme;
-use App\Models\SchemeVersion;
 use App\Models\SchemeTier;
+use App\Models\SchemeVersion;
 use App\Services\BonusCalculators\AdditionalAgentsCalculator;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -18,8 +18,9 @@ use Tests\TestCase;
  *
  * REGLAS DE NEGOCIO:
  *   1. El Promoter DEBE haber ganado el bono prerequisite (dependency_scheme_id).
- *   2. Solo cuentan agentes ACTIVOS bajo el promotor.
- *   3. El porcentaje se aplica sobre la PP total de la promotoría.
+ *   2. Solo cuentan los agentes que ganaron la Bono Activity Ratio en el periodo.
+ *   3. Cada agente cuenta una sola vez por trimestre.
+ *   4. El porcentaje se aplica sobre la PP total de la promotoría.
  *
  * Tiers:
  *   ┌──────────────┬────────┐
@@ -38,9 +39,9 @@ class AdditionalAgentsCalculatorTest extends TestCase
 
     protected AdditionalAgentsCalculator $calculator;
 
-    // ─── ID de referencia para el esquema prerequisite ──────────────────
+    protected Scheme $prerequisiteScheme;
 
-    protected int $prerequisiteSchemeId;
+    protected Scheme $activityRatioScheme;
 
     // ────────────────────────────────────────────────────────────────────
 
@@ -50,22 +51,14 @@ class AdditionalAgentsCalculatorTest extends TestCase
 
         Carbon::setTestNow(Carbon::parse('2026-06-15'));
 
-        // Crear el bono prerequisite "Producción 1er Año Vida" (activo por defecto)
-        $prerequisite = Scheme::create([
-            'name'      => 'first_year_production',
-            'type'      => 'bonus',
-            'target'    => 'promoter',
-            'is_active' => true,
-        ]);
+        // Bono prerequisite «Producción de 1er Año Trimestral» (Promotor)
+        $this->prerequisiteScheme = $this->createPrerequisiteScheme();
 
-        SchemeVersion::create([
-            'scheme_id'    => $prerequisite->id,
-            'version_name' => 'v1.0',
-            'starts_at'    => '2026-01-01',
-            'ends_at'      => '2026-12-31',
-        ]);
+        // Bono prerequisite de los agentes requerido por Activity Ratio
+        $this->createAgentFirstYearScheme();
 
-        $this->prerequisiteSchemeId = $prerequisite->id;
+        // Bono «Activity Ratio» que define si un agente tiene compensación
+        $this->activityRatioScheme = $this->createActivityRatioScheme();
 
         $this->calculator = new AdditionalAgentsCalculator();
     }
@@ -81,64 +74,137 @@ class AdditionalAgentsCalculatorTest extends TestCase
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * 🟢 5 agentes calificados → Tier 5 (5+) → 7%.
+     * 🟢 5 agentes que ganan Activity Ratio → Tier 5 (5+) → 7%.
      *
      * PP total = $500,000. Monto = $500,000 × 7% = $35,000.
      */
-    public function test_promoter_achieves_tier_five_with_five_qualifying_agents(): void
+    public function test_five_compensated_agents_reach_top_tier(): void
     {
         $scheme   = $this->createAdditionalAgentsScheme();
         $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
 
-        // ── 5 agentes activos con PP ────────────────────────────────────
-        $agents = [];
-        for ($i = 0; $i < 5; $i++) {
-            $agents[] = Agent::factory()
-                ->for($promoter, 'promoter')
-                ->create(['is_active' => true]);
+        $this->createQualifiedAgents($promoter, 5, 100_000);
 
-            Policy::factory()->vida()->withPremium(100_000)
-                ->for($agents[$i])
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
-        }
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
 
-        // PP total = 5 × $100K = $500K
-
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
-
-        $this->assertTrue($result['is_achieved'], 'Debió alcanzarse. Razón: ' . ($result['details']['reason'] ?? '—'));
+        $this->assertTrue($result['is_achieved'], 'Debió alcanzarse. Razón: '.($result['details']['reason'] ?? '—'));
         $this->assertEquals(7.0, (float) $result['tier_data']['promoter_percentage']);
-        $this->assertEquals(35_000.0, $result['amount']); // $500K × 7%
-        $this->assertEquals(5, $result['details']['active_agents']);
+        $this->assertEquals(35_000.0, $result['amount']);
+        $this->assertEquals(5, $result['details']['qualified_agents']);
     }
 
     /**
-     * 🟢 Exactamente 3 agentes → Tier 3 (3 agentes) → 4%.
-     *
-     * PP total = $300,000. Monto = $300,000 × 4% = $12,000.
+     * 🟢 Exactamente 3 agentes con compensación → Tier 3 → 4%.
      */
-    public function test_promoter_achieves_tier_three_with_exactly_three_qualifying_agents(): void
+    public function test_three_compensated_agents_reach_four_percent(): void
     {
         $scheme   = $this->createAdditionalAgentsScheme();
         $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
 
-        for ($i = 0; $i < 3; $i++) {
-            $agent = Agent::factory()
-                ->for($promoter, 'promoter')
-                ->create(['is_active' => true]);
+        $this->createQualifiedAgents($promoter, 3, 100_000);
 
-            Policy::factory()->vida()->withPremium(100_000)
-                ->for($agent)
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
-        }
-
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
 
         $this->assertTrue($result['is_achieved']);
         $this->assertEquals(4.0, (float) $result['tier_data']['promoter_percentage']);
-        $this->assertEquals(12_000.0, $result['amount']); // $300K × 4%
+        $this->assertEquals(12_000.0, $result['amount']);
+    }
+
+    /**
+     * 🟢 Más agentes que el rango configurado conservan el tramo más alto.
+     *
+     * El tabulador cubre hasta 5 agentes; con 6 el bono NO debe bloquearse.
+     */
+    public function test_six_compensated_agents_keep_the_top_tier(): void
+    {
+        $scheme   = $this->createAdditionalAgentsScheme();
+        $promoter = Promoter::factory()->create();
+
+        $this->createQualifiedAgents($promoter, 6, 100_000);
+
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
+
+        $this->assertTrue($result['is_achieved'], 'Con 6 agentes debe conservarse el tramo 5+.');
+        $this->assertEquals(7.0, (float) $result['tier_data']['promoter_percentage']);
+        $this->assertEquals(6, $result['details']['qualified_agents']);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🟡 AGENTES SIN COMPENSACIÓN
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 🟡 Los agentes que no ganan Activity Ratio no cuentan para el tramo.
+     *
+     * 3 agentes con producción + 2 registrados sin pólizas → 3 calificados.
+     */
+    public function test_agents_without_activity_ratio_are_not_counted(): void
+    {
+        $scheme   = $this->createAdditionalAgentsScheme();
+        $promoter = Promoter::factory()->create();
+
+        $this->createQualifiedAgents($promoter, 3, 100_000);
+
+        // Agentes registrados sin pólizas: no ganan Activity Ratio
+        Agent::factory()->count(2)->for($promoter, 'promoter')->create(['is_active' => true]);
+
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
+
+        $this->assertTrue($result['is_achieved']);
+        $this->assertEquals(3, $result['details']['qualified_agents']);
+        $this->assertEquals(5, $result['details']['active_agents']);
+        $this->assertEquals(4.0, (float) $result['tier_data']['promoter_percentage']);
+        $this->assertEquals(12_000.0, $result['amount']); // PP $300K × 4%
+    }
+
+    /**
+     * 🟡 Cada agente cuenta una sola vez por trimestre.
+     *
+     * Un agente con 5 pólizas que gana Activity Ratio suma 1, no 5.
+     */
+    public function test_an_agent_counts_only_once_regardless_of_policy_count(): void
+    {
+        $scheme   = $this->createAdditionalAgentsScheme();
+        $promoter = Promoter::factory()->create();
+
+        $agent = Agent::factory()->for($promoter, 'promoter')->create(['is_active' => true]);
+
+        // 5 pólizas pagadas del mismo agente
+        Policy::factory()->vida()->withPremium(100_000)->count(5)
+            ->for($agent)
+            ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
+
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
+
+        $this->assertTrue($result['is_achieved']);
+        $this->assertEquals(1, $result['details']['qualified_agents']);
+        $this->assertEquals(2.0, (float) $result['tier_data']['promoter_percentage']);
+        $this->assertEquals(10_000.0, $result['amount']); // $500K × 2%
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -146,109 +212,69 @@ class AdditionalAgentsCalculatorTest extends TestCase
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * 🔴 El promotor tiene 5 agentes calificados, pero el bono prerequisite
-     *    "Producción 1er Año" está INACTIVO → NO ganó el bono previo.
+     * 🔴 El bono prerequisite está INACTIVO → el bono no se otorga.
      */
-    public function test_promoter_fails_completely_if_dependency_bonus_not_achieved(): void
+    public function test_fails_if_prerequisite_bonus_is_inactive(): void
     {
-        // ── Desactivar el bono prerequisite ────────────────────────────
-        Scheme::where('id', $this->prerequisiteSchemeId)->update(['is_active' => false]);
+        Scheme::where('id', $this->prerequisiteScheme->id)->update(['is_active' => false]);
 
         $scheme   = $this->createAdditionalAgentsScheme();
         $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
 
-        // 5 agentes calificados
-        for ($i = 0; $i < 5; $i++) {
-            $agent = Agent::factory()
-                ->for($promoter, 'promoter')
-                ->create(['is_active' => true]);
+        $this->createQualifiedAgents($promoter, 5, 100_000);
 
-            Policy::factory()->vida()->withPremium(100_000)
-                ->for($agent)
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
-        }
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
 
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
-
-        $this->assertFalse($result['is_achieved'], 'Debió fallar porque el bono prerequisite no está activo.');
+        $this->assertFalse($result['is_achieved']);
         $this->assertStringContainsString('prerequisite', strtolower($result['details']['reason'] ?? ''));
     }
 
     /**
-     * 🔴 Promotor cumple dependencia, pero tiene 0 agentes activos → falla.
+     * 🔴 Promotor sin agentes → no hay agentes con compensación.
      */
-    public function test_promoter_fails_with_zero_qualifying_agents(): void
+    public function test_fails_with_zero_compensated_agents(): void
     {
         $scheme   = $this->createAdditionalAgentsScheme();
         $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
 
-        // Sin agentes
-
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
 
         $this->assertFalse($result['is_achieved']);
         $this->assertEquals(0, $result['progress']['current_value']);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 🟡 TESTS DE PRECISIÓN
-    // ═══════════════════════════════════════════════════════════════════════
-
     /**
-     * 🟡 6 agentes en total, pero solo 2 están ACTIVOS → Tier 2 (3%).
-     *
-     * Los inactivos son ignorados en el conteo.
-     * PP total = la suma de TODOS (activos + inactivos) = 6 × $100K = $600K.
-     * Monto = $600,000 × 3% = $18,000.
+     * 🔴 Sin esquema Activity Ratio no se puede determinar la compensación.
      */
-    public function test_non_qualifying_agents_are_ignored_in_the_count(): void
+    public function test_fails_if_activity_ratio_scheme_is_missing(): void
     {
+        $this->activityRatioScheme->delete();
+
         $scheme   = $this->createAdditionalAgentsScheme();
         $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
 
-        // ── 2 agentes ACTIVOS ──────────────────────────────────────────
-        for ($i = 0; $i < 2; $i++) {
-            $agent = Agent::factory()
-                ->for($promoter, 'promoter')
-                ->create(['is_active' => true]);
+        $this->createQualifiedAgents($promoter, 3, 100_000);
 
-            Policy::factory()->vida()->withPremium(100_000)
-                ->for($agent)
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
-        }
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
 
-        // ── 4 agentes INACTIVOS (no deben contar para el tier) ─────────
-        for ($i = 0; $i < 4; $i++) {
-            $agent = Agent::factory()
-                ->for($promoter, 'promoter')
-                ->create(['is_active' => false]);
-
-            Policy::factory()->vida()->withPremium(100_000)
-                ->for($agent)
-                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_ACTIVA]);
-        }
-
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
-
-        $this->assertTrue($result['is_achieved']);
-
-        // Debe ser Tier 2 (2 agentes → 3%), NO Tier 5 (5+ → 7%)
-        $this->assertEquals(3.0, (float) $result['tier_data']['promoter_percentage']);
-        $this->assertNotEquals(7.0, (float) $result['tier_data']['promoter_percentage']);
-
-        // PP total = 6 × $100K = $600K (los inactivos también contribuyen PP)
-        $this->assertEquals(18_000.0, $result['amount']); // $600K × 3%
-
-        // Solo 2 agentes activos contados
-        $this->assertEquals(2, $result['details']['active_agents']);
+        $this->assertFalse($result['is_achieved']);
+        $this->assertStringContainsString('Activity Ratio', $result['details']['reason'] ?? '');
     }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // 🟡 TEST ADICIONAL
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * 🔴 Un Agent no puede recibir este bono.
@@ -257,12 +283,51 @@ class AdditionalAgentsCalculatorTest extends TestCase
     {
         $scheme = $this->createAdditionalAgentsScheme();
         $agent  = Agent::factory()->create();
-        $period = $this->defaultPeriod();
 
-        $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
+        $result = $this->calculator->calculate(
+            $agent,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
 
         $this->assertFalse($result['is_achieved']);
         $this->assertStringContainsString('Promotor', $result['details']['reason'] ?? '');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🟡 BARRAS DE PROGRESO
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 🟡 La barra del bono prerequisite aparece una sola vez y marcada como
+     *    dependencia (el frontend la reemplaza con el estado real del bono hijo).
+     */
+    public function test_prerequisite_bar_is_listed_only_once(): void
+    {
+        $scheme   = $this->createAdditionalAgentsScheme();
+        $promoter = Promoter::factory()->create();
+
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
+
+        $dependencyBars = array_filter(
+            $result['progress_breakdown'],
+            fn (array $item) => ($item['_isDependency'] ?? false) === true,
+        );
+
+        $this->assertCount(1, $dependencyBars, 'La dependencia no debe duplicarse.');
+
+        $prerequisiteBars = array_filter(
+            $result['progress_breakdown'],
+            fn (array $item) => $item['label'] === $this->prerequisiteScheme->name,
+        );
+
+        $this->assertCount(1, $prerequisiteBars, 'El bono prerequisite debe mostrarse una sola vez.');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -270,18 +335,138 @@ class AdditionalAgentsCalculatorTest extends TestCase
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Crea el esquema «Adicional por Agentes» que depende del bono prerequisite.
+     * Crea N agentes activos con una póliza pagada de vida que les permite
+     * ganar el Bono Activity Ratio.
      */
-    protected function createAdditionalAgentsScheme(): Scheme
+    private function createQualifiedAgents(Promoter $promoter, int $count, float $premium): void
+    {
+        for ($i = 0; $i < $count; $i++) {
+            $agent = Agent::factory()
+                ->for($promoter, 'promoter')
+                ->create(['is_active' => true]);
+
+            Policy::factory()->vida()->withPremium($premium)
+                ->for($agent)
+                ->create(['issue_date' => '2026-03-01', 'status' => Policy::STATUS_PAGADA]);
+        }
+    }
+
+    private function createPrerequisiteScheme(): Scheme
+    {
+        $scheme = Scheme::create([
+            'name'             => 'first_year_production',
+            'template_key'     => 'first_year_production',
+            'type'             => 'bonus',
+            'target'           => 'promoter',
+            'is_active'        => true,
+            'frequency'        => 'trimestral',
+            'requires_product' => [],
+        ]);
+
+        $version = SchemeVersion::create([
+            'scheme_id'    => $scheme->id,
+            'version_name' => 'v1.0',
+            'starts_at'    => '2026-01-01',
+            'ends_at'      => '2026-12-31',
+        ]);
+
+        SchemeTier::create([
+            'scheme_version_id'   => $version->id,
+            'conditions'          => ['min_pp' => 1, 'min_irp' => 0],
+            'agent_percentage'    => 0,
+            'promoter_percentage' => 0,
+        ]);
+
+        return $scheme->fresh(['versions.tiers']);
+    }
+
+    /**
+     * Bono «Producción 1er Año Vida Trimestral (Agentes)» que Activity Ratio
+     * exige como prerequisite. Tier accesible: cualquier PCA > $0.
+     */
+    private function createAgentFirstYearScheme(): Scheme
+    {
+        $scheme = Scheme::create([
+            'name'             => 'agent_first_year_production',
+            'template_key'     => 'agent_first_year_production',
+            'type'             => 'bonus',
+            'target'           => 'agent',
+            'is_active'        => true,
+            'frequency'        => 'trimestral',
+            'requires_product' => [],
+        ]);
+
+        $version = SchemeVersion::create([
+            'scheme_id'    => $scheme->id,
+            'version_name' => 'v1.0',
+            'starts_at'    => '2026-01-01',
+            'ends_at'      => '2026-12-31',
+        ]);
+
+        SchemeTier::create([
+            'scheme_version_id'          => $version->id,
+            'conditions'                 => ['min_pca' => 1],
+            'agent_percentage'           => 0,
+            'agent_automatic_percentage' => 0,
+            'promoter_percentage'        => 0,
+        ]);
+
+        return $scheme->fresh(['versions.tiers']);
+    }
+
+    /**
+     * Esquema Activity Ratio con un tier accesible: basta una póliza pagada.
+     */
+    private function createActivityRatioScheme(): Scheme
+    {
+        $scheme = Scheme::create([
+            'name'                 => 'activity_ratio',
+            'template_key'         => 'activity_ratio',
+            'type'                 => 'bonus',
+            'target'               => 'agent',
+            'is_active'            => true,
+            'metric_base'          => 'PCA',
+            'frequency'            => 'trimestral',
+            'dependency_scheme_id' => 'agent_first_year_production',
+            'pna_equivalences'     => [
+                ['min_pna' => 16000, 'max_pna' => 20999, 'policies' => 0.5],
+                ['min_pna' => 21000, 'max_pna' => 59999, 'policies' => 1.0],
+                ['min_pna' => 60000, 'max_pna' => 119999, 'policies' => 1.5],
+                ['min_pna' => 120000, 'max_pna' => null, 'policies' => 2.0],
+            ],
+        ]);
+
+        $version = SchemeVersion::create([
+            'scheme_id'    => $scheme->id,
+            'version_name' => 'v1.0',
+            'starts_at'    => '2026-01-01',
+            'ends_at'      => '2026-12-31',
+        ]);
+
+        SchemeTier::create([
+            'scheme_version_id'   => $version->id,
+            'conditions'          => ['min_policies' => 0.1, 'max_policies' => null],
+            'agent_percentage'    => 2.0,
+            'promoter_percentage' => 0,
+        ]);
+
+        return $scheme->fresh(['versions.tiers']);
+    }
+
+    /**
+     * Esquema «Adicional por Agentes» que depende del bono prerequisite.
+     */
+    private function createAdditionalAgentsScheme(): Scheme
     {
         $scheme = Scheme::create([
             'name'                 => 'additional_agents',
+            'template_key'         => 'additional_agents',
             'type'                 => 'bonus',
             'target'               => 'promoter',
             'is_active'            => true,
             'metric_base'          => 'PP',
             'frequency'            => 'trimestral',
-            'dependency_scheme_id' => (string) $this->prerequisiteSchemeId,
+            'dependency_scheme_id' => 'first_year_production',
         ]);
 
         $version = SchemeVersion::create([
@@ -293,11 +478,11 @@ class AdditionalAgentsCalculatorTest extends TestCase
 
         $tiers = [
             // [min_agents, max_agents, promoter_pct]
-            [1, 1,     2.0],
-            [2, 2,     3.0],
-            [3, 3,     4.0],
-            [4, 4,     5.0],
-            [5, null,  7.0],
+            [1, 1,    2.0],
+            [2, 2,    3.0],
+            [3, 3,    4.0],
+            [4, 4,    5.0],
+            [5, 5,    7.0],
         ];
 
         foreach ($tiers as [$min, $max, $pct]) {
@@ -314,16 +499,5 @@ class AdditionalAgentsCalculatorTest extends TestCase
         }
 
         return $scheme->fresh(['versions.tiers']);
-    }
-
-    /**
-     * @return array{start: Carbon, end: Carbon}
-     */
-    protected function defaultPeriod(): array
-    {
-        return [
-            'start' => Carbon::parse('2026-01-01'),
-            'end'   => Carbon::parse('2026-12-31'),
-        ];
     }
 }

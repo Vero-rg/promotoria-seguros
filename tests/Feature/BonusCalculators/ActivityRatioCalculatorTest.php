@@ -230,12 +230,12 @@ class ActivityRatioCalculatorTest extends TestCase
     }
 
     /**
-     * 🟢 Solo las pólizas de vida (Vida, METALIFE, PERFECTLIFE) se ponderan;
-     *    las Primordial no suman peso ni cuentan en «Pólizas de vida totales».
+     * 🟢 Solo las pólizas de vida (Vida, METALIFE, PERFECTLIFE) participan en
+     *    el bono; las Primordial no suman peso ni PCA.
      *
      * Vida: 3 × $50K → 1.0 c/u = 3.0 → promedio 1.0 → Activo 12 (2%).
      * Primordial: 2 × $150K → ignoradas (sin filtro darían 7.0 → 7%).
-     * PCA (base de pago) sí incluye todas: 3 × $50K + 2 × $150K = $450K.
+     * PCA (base de pago) = solo vida = 3 × $50K = $150K.
      */
     public function test_primordial_policies_are_excluded_from_weighted_total(): void
     {
@@ -268,9 +268,9 @@ class ActivityRatioCalculatorTest extends TestCase
         $this->assertEquals(1.0, $result['progress']['current_value']);
         $this->assertEquals(2.0, (float) $result['tier_data']['agent_percentage']); // Activo 12
 
-        // La base de pago (PCA) sigue considerando todas las pólizas
-        $this->assertEquals(450_000.0, $result['details']['pca']);
-        $this->assertEquals(9_000.0, $result['amount']); // $450K × 2%
+        // La base de pago (PCA) también excluye las Primordial
+        $this->assertEquals(150_000.0, $result['details']['pca']);
+        $this->assertEquals(3_000.0, $result['amount']); // $150K × 2%
 
         $vidaRow = collect($result['progress_breakdown'])
             ->firstWhere('label', 'Pólizas de vida totales');

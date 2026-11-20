@@ -185,6 +185,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
                     'payment_strategy' => $automaticDominant ? 'automatic' : 'split',
                     'policy_count' => $policyCount,
                     'first_year_end' => $firstYearEnd->toDateString(),
+                    'metrics' => ['min_pca' => round($pca, 2)],
                 ],
             ];
         }
@@ -570,7 +571,10 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
                 'required_value' => $requiredPca,
             ],
             'progress_breakdown' => $breakdown,
-            'details' => ['reason' => $reason],
+            'details' => [
+                'reason'  => $reason,
+                'metrics' => ['min_pca' => round($pca, 2)],
+            ],
         ];
     }
 }

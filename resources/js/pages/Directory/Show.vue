@@ -311,7 +311,7 @@ const toggleAgent = (agentId) => {
                     </div>
 
                     <!-- Panel de Bonos -->
-                    <BonusPanel :bonuses="stats.bonuses" type="agent" />
+                    <BonusPanel :bonuses="stats.bonuses" type="agent" :user-id="entity.id" />
                 </div>
             </template>
 
@@ -442,7 +442,7 @@ const toggleAgent = (agentId) => {
                     </div>
 
                     <!-- ▸ Columna Derecha: Ruta de Bonos (Timeline Stepper) -->
-                    <BonusPanel :bonuses="stats.bonuses" type="promoter" />
+                    <BonusPanel :bonuses="stats.bonuses" type="promoter" :user-id="entity.id" />
 
                 </div>
 

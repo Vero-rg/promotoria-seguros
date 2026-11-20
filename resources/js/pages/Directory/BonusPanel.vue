@@ -17,11 +17,18 @@
  *       periodo_evaluado: string (ej. "01/01/2026 al 31/03/2026"),
  *       mostrar_alerta_periodo: bool (true si el periodo real > rango visual),
  *       monthly_breakdown: Array (montos por mes de los bonos mensuales),
- *       monthly_total: bool (true si el monto es la suma de varios meses)
+ *       monthly_total: bool (true si el monto es la suma de varios meses),
+ *       matrix: Object (matriz de compensación para consulta),
+ *       earned: { percentage, fixed_amount, amount, note },
+ *       next_level: { label, requirement, percentage, gaps[] }
+ *       advances: { months[], total, calculated_total } (bonos con anticipos)
  *   }
  */
+import { ref } from 'vue';
+import BonusAdvancesTable from './BonusAdvancesTable.vue';
+import BonusMatrixModal from './BonusMatrixModal.vue';
 import MonthlyBonusBreakdown from './MonthlyBonusBreakdown.vue';
-import { CheckCircle2, Lock, Award, Info } from 'lucide-vue-next';
+import { CheckCircle2, Lock, Info, Table2 } from 'lucide-vue-next';
 
 const props = defineProps({
     bonuses: {
@@ -32,6 +39,10 @@ const props = defineProps({
         type: String,
         required: true,
         validator: (v) => ['agent', 'promoter'].includes(v),
+    },
+    userId: {
+        type: Number,
+        required: true,
     },
 });
 
@@ -86,6 +97,46 @@ const hasConditions = (bonus) => {
 
 const hasMonthlyBreakdown = (bonus) => {
     return Array.isArray(bonus.monthly_breakdown) && bonus.monthly_breakdown.length > 1;
+};
+
+const hasMatrix = (bonus) => {
+    return Array.isArray(bonus.matrix?.tiers) && bonus.matrix.tiers.length > 0;
+};
+
+// ─── Matriz de compensación ────────────────────────
+const openMatrixIndex = ref(null);
+
+const openMatrix = (index) => {
+    openMatrixIndex.value = index;
+};
+
+const closeMatrix = () => {
+    openMatrixIndex.value = null;
+};
+
+const formatCompactNumber = (value) => {
+    const number = Number(value ?? 0);
+    return Number.isInteger(number) ? String(number) : number.toFixed(2);
+};
+
+/**
+ * Texto del pago obtenido: «40% · $279,440».
+ */
+const earnedLabel = (bonus) => {
+    const earned = bonus.earned;
+    if (!earned) return null;
+
+    const amount = formatCurrency(earned.amount ?? 0);
+
+    if (earned.fixed_amount) {
+        return `Bono fijo ${formatCurrency(earned.fixed_amount)}`;
+    }
+
+    if (earned.percentage !== null && earned.percentage !== undefined) {
+        return `${formatCompactNumber(earned.percentage)}% · ${amount}`;
+    }
+
+    return earned.amount > 0 ? amount : null;
 };
 
 const isLockedByDependency = (bonus, index) => {
@@ -163,6 +214,15 @@ const hasEffectiveConditions = (bonus) => {
                         <span class="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide bg-gray-100 text-gray-500">
                             {{ frequencyMetricTag(bonus) }}
                         </span>
+                        <button
+                            v-if="hasMatrix(bonus)"
+                            type="button"
+                            class="flex-shrink-0 p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                            title="Ver matriz de compensación"
+                            @click="openMatrix(idx)"
+                        >
+                            <Table2 class="w-3.5 h-3.5" />
+                        </button>
                     </div>
                     <span class="text-xs font-medium flex-shrink-0 ml-2" :class="bonus.unlocked ? 'text-green-700' : 'text-gray-500'">
                         {{ bonus.unlocked ? 'Desbloqueado' : 'Bloqueado' }}
@@ -222,13 +282,37 @@ const hasEffectiveConditions = (bonus) => {
                     Permite anticipos mensuales
                 </div>
 
-                <!-- Monto del bono si fue alcanzado -->
-                <div v-if="bonus.unlocked && bonus.amount > 0" class="text-xs text-green-700 font-medium text-right">
-                    {{ bonus.monthly_total ? 'Total del periodo' : 'Monto' }}: {{ formatCurrency(bonus.amount) }}
+                <!-- Pago obtenido: nivel, porcentaje y monto -->
+                <div v-if="bonus.unlocked && earnedLabel(bonus)" class="flex items-center justify-between text-xs">
+                    <span class="text-gray-500">{{ bonus.monthly_total ? 'Total del periodo' : 'Nivel alcanzado' }}</span>
+                    <span class="font-semibold text-green-700">
+                        {{ earnedLabel(bonus) }}
+                    </span>
+                </div>
+                <div v-if="bonus.unlocked && bonus.earned?.note" class="text-[11px] text-gray-400 text-right -mt-1">
+                    {{ bonus.earned.note }}
+                </div>
+
+                <!-- Alerta: lo que falta para el siguiente nivel -->
+                <div
+                    v-if="bonus.next_level && bonus.next_level.gaps?.length"
+                    class="flex items-start gap-1.5 px-2.5 py-1.5 bg-amber-50/70 border border-amber-100 rounded-lg text-[11px] text-amber-800"
+                >
+                    <Info class="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
+                    <span>{{ bonus.next_level.message }}</span>
                 </div>
 
                 <!-- Desglose mes a mes (bonos mensuales) -->
                 <MonthlyBonusBreakdown v-if="hasMonthlyBreakdown(bonus)" :months="bonus.monthly_breakdown" />
+
+                <!-- Anticipos mensuales (bonos de 1er año de vida) -->
+                <BonusAdvancesTable
+                    v-if="bonus.advances?.months?.length"
+                    :advances="bonus.advances"
+                    :scheme-id="bonus.scheme_id"
+                    :user-type="type"
+                    :user-id="userId"
+                />
 
                 <!-- Alerta: periodo de evaluación más amplio que el rango visual -->
                 <div v-if="bonus.mostrar_alerta_periodo" class="flex items-start gap-1.5 px-2.5 py-1.5 bg-blue-50/60 border border-blue-100 rounded-lg text-[11px] text-blue-700">
@@ -241,6 +325,7 @@ const hasEffectiveConditions = (bonus) => {
         <div v-else class="px-5 py-10 text-center text-gray-400 text-sm">
             No hay bonos configurados.
         </div>
+
     </div>
 
     <!-- ═══════════ PROMOTOR: Panel de Bonos (estilo tarjetas) ═══════════ -->
@@ -260,6 +345,15 @@ const hasEffectiveConditions = (bonus) => {
                         <span class="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide bg-gray-100 text-gray-500">
                             {{ frequencyMetricTag(bonus) }}
                         </span>
+                        <button
+                            v-if="hasMatrix(bonus)"
+                            type="button"
+                            class="flex-shrink-0 p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                            title="Ver matriz de compensación"
+                            @click="openMatrix(idx)"
+                        >
+                            <Table2 class="w-3.5 h-3.5" />
+                        </button>
                     </div>
                     <span class="text-xs font-medium flex-shrink-0 ml-2" :class="bonus.unlocked ? 'text-green-700' : 'text-gray-500'">
                         {{ bonus.unlocked ? 'Desbloqueado' : 'Bloqueado' }}
@@ -297,13 +391,37 @@ const hasEffectiveConditions = (bonus) => {
                     Permite anticipos mensuales
                 </div>
 
-                <!-- Monto del bono si fue alcanzado -->
-                <div v-if="bonus.unlocked && bonus.amount > 0" class="text-xs text-green-700 font-medium text-right">
-                    {{ bonus.monthly_total ? 'Total del periodo' : 'Monto' }}: {{ formatCurrency(bonus.amount) }}
+                <!-- Pago obtenido: nivel, porcentaje y monto -->
+                <div v-if="bonus.unlocked && earnedLabel(bonus)" class="flex items-center justify-between text-xs">
+                    <span class="text-gray-500">{{ bonus.monthly_total ? 'Total del periodo' : 'Nivel alcanzado' }}</span>
+                    <span class="font-semibold text-green-700">
+                        {{ earnedLabel(bonus) }}
+                    </span>
+                </div>
+                <div v-if="bonus.unlocked && bonus.earned?.note" class="text-[11px] text-gray-400 text-right -mt-1">
+                    {{ bonus.earned.note }}
+                </div>
+
+                <!-- Alerta: lo que falta para el siguiente nivel -->
+                <div
+                    v-if="bonus.next_level && bonus.next_level.gaps?.length"
+                    class="flex items-start gap-1.5 px-2.5 py-1.5 bg-amber-50/70 border border-amber-100 rounded-lg text-[11px] text-amber-800"
+                >
+                    <Info class="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
+                    <span>{{ bonus.next_level.message }}</span>
                 </div>
 
                 <!-- Desglose mes a mes (bonos mensuales) -->
                 <MonthlyBonusBreakdown v-if="hasMonthlyBreakdown(bonus)" :months="bonus.monthly_breakdown" />
+
+                <!-- Anticipos mensuales (bonos de 1er año de vida) -->
+                <BonusAdvancesTable
+                    v-if="bonus.advances?.months?.length"
+                    :advances="bonus.advances"
+                    :scheme-id="bonus.scheme_id"
+                    :user-type="type"
+                    :user-id="userId"
+                />
 
                 <!-- Alerta: periodo de evaluación más amplio que el rango visual -->
                 <div v-if="bonus.mostrar_alerta_periodo" class="flex items-start gap-1.5 px-2.5 py-1.5 bg-blue-50/60 border border-blue-100 rounded-lg text-[11px] text-blue-700">
@@ -316,5 +434,13 @@ const hasEffectiveConditions = (bonus) => {
         <div v-else class="px-5 py-10 text-center text-gray-400 text-sm">
             No hay bonos configurados.
         </div>
+
     </div>
+
+    <!-- Consulta de la matriz de compensación del bono seleccionado -->
+    <BonusMatrixModal
+        v-if="openMatrixIndex !== null && bonuses[openMatrixIndex]"
+        :bonus="bonuses[openMatrixIndex]"
+        @close="closeMatrix"
+    />
 </template>

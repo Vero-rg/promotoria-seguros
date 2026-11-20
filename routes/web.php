@@ -9,6 +9,7 @@ use App\Http\Controllers\PolicyController;
 use App\Http\Controllers\PolicyImportController;
 use App\Http\Controllers\SchemeController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\BonusAdvanceController;
 
 // Redirección inicial
 Route::redirect('/', '/login');
@@ -32,6 +33,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('policies', PolicyController::class);
     Route::patch('policies/{policy}/status', [PolicyController::class, 'updateStatus'])->name('policies.status');
     Route::resource('schemes', SchemeController::class);
+    Route::post('bonus-advances', [BonusAdvanceController::class, 'store'])
+        ->name('bonus-advances.store');
 
     // Módulo de Esquemas
     Route::prefix('esquemas')->name('esquemas.')->group(function () {

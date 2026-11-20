@@ -36,6 +36,8 @@ class BonusOrchestratorService
      */
     public function __construct(
         protected BonusCalculatorFactory $factory = new BonusCalculatorFactory(),
+        protected BonusCompensationMatrix $matrix = new BonusCompensationMatrix(),
+        protected BonusAdvanceService $advances = new BonusAdvanceService(),
     ) {
     }
 
@@ -160,6 +162,16 @@ class BonusOrchestratorService
             // ── Desglose mes a mes (solo bonos mensuales en rangos multi-mes) ──
             $calcResult['monthly_breakdown'] = $this->buildMonthlyBreakdown($evaluation['months']);
             $calcResult['monthly_total']     = count($evaluation['months']) > 1;
+
+            // ── Matriz de compensación, pago obtenido y siguiente nivel ──
+            $calcResult['matrix']     = $this->matrix->build($scheme, $calcResult);
+            $calcResult['earned']     = $this->matrix->earned($scheme, $calcResult);
+            $calcResult['next_level'] = $this->matrix->nextLevel($scheme, $calcResult);
+
+            // ── Anticipos mensuales (bonos de 1er año de vida) ────────────
+            $calcResult['advances'] = $monthlyView && $this->advances->supports($scheme)
+                ? $this->advances->build($scheme, $user, $visualEnd)
+                : null;
 
             $results[]     = $calcResult;
             $achievedMap[$scheme->id] = $calcResult['is_achieved'];
@@ -459,6 +471,10 @@ class BonusOrchestratorService
             'visual_period_end'      => $visualEnd?->toDateString(),
             'monthly_breakdown'      => [],
             'monthly_total'          => false,
+            'matrix'                 => null,
+            'earned'                 => null,
+            'next_level'             => null,
+            'advances'               => null,
         ];
     }
 
@@ -534,7 +550,7 @@ class BonusOrchestratorService
         return [
             'result' => count($months) === 1
                 ? $months[0]['result']
-                : $this->aggregateMonthlyResults($months),
+                : $this->aggregateMonthlyResults($scheme, $months),
             'period' => [
                 'start' => $months[0]['start'],
                 'end'   => $lastMonth['end'],
@@ -551,13 +567,20 @@ class BonusOrchestratorService
      * monto generado, de modo que al colapsar la tarjeta se vea «cuánto obtuvo
      * de cada mes».
      *
+     * Para la matriz de compensación se conserva el tramo del mejor mes.
+     *
      * @param  array<int, array>  $months
      */
-    private function aggregateMonthlyResults(array $months): array
+    private function aggregateMonthlyResults(Scheme $scheme, array $months): array
     {
         $totalAmount   = 0.0;
         $achievedCount = 0;
         $breakdown     = [];
+        $bestTier      = null;
+        $bestPercentage = -1.0;
+        $bestMonth     = null;
+        $bestMetrics   = [];
+        $bestDetails   = [];
 
         foreach ($months as $entry) {
             $amount = (float) ($entry['result']['amount'] ?? 0);
@@ -565,6 +588,21 @@ class BonusOrchestratorService
 
             if ($entry['result']['is_achieved'] ?? false) {
                 $achievedCount++;
+            }
+
+            $tier = $entry['result']['tier_data'] ?? null;
+
+            if ($tier !== null) {
+                $key = $scheme->target === 'promoter' ? 'promoter_percentage' : 'agent_percentage';
+                $percentage = (float) ($tier[$key] ?? 0);
+
+                if ($percentage > $bestPercentage) {
+                    $bestPercentage = $percentage;
+                    $bestTier       = $tier;
+                    $bestMonth      = $entry['label'];
+                    $bestDetails    = $entry['result']['details'] ?? [];
+                    $bestMetrics    = $entry['result']['details']['metrics'] ?? [];
+                }
             }
 
             $breakdown[] = [
@@ -580,14 +618,14 @@ class BonusOrchestratorService
             'is_achieved' => $achievedCount > 0,
             'amount'      => round($totalAmount, 2),
             'tier_index'  => null,
-            'tier_data'   => null,
+            'tier_data'   => $bestTier,
             'progress'    => [
                 'metric_label'   => 'Monto acumulado por mes',
                 'current_value'  => round($totalAmount, 2),
                 'required_value' => 0.0,
             ],
             'progress_breakdown' => $breakdown,
-            'details'            => [
+            'details'            => array_merge($bestDetails, [
                 'monthly'         => array_map(fn (array $entry) => [
                     'month'       => $entry['month'],
                     'amount'      => (float) ($entry['result']['amount'] ?? 0),
@@ -595,7 +633,9 @@ class BonusOrchestratorService
                 ], $months),
                 'achieved_months' => $achievedCount,
                 'total_months'    => count($months),
-            ],
+                'best_month'      => $bestMonth,
+                'metrics'         => $bestMetrics,
+            ]),
         ];
     }
 
@@ -788,6 +828,12 @@ class BonusOrchestratorService
                 // ── Desglose mes a mes (bonos mensuales en rangos multi-mes) ──
                 'monthly_breakdown'      => $result['monthly_breakdown'] ?? [],
                 'monthly_total'          => (bool) ($result['monthly_total'] ?? false),
+                // ── Matriz de compensación y avance al siguiente nivel ──
+                'matrix'                 => $result['matrix'] ?? null,
+                'earned'                 => $result['earned'] ?? null,
+                'next_level'             => $result['next_level'] ?? null,
+                // ── Anticipos mensuales (bonos que los permiten) ──
+                'advances'               => $result['advances'] ?? null,
             ];
         }, $results, array_keys($results)));
     }

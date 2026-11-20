@@ -195,6 +195,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
                         'version_name' => $version->version_name,
                         'pp'           => round($pp, 2),
                         'irp'          => round($irp, 2),
+                        'metrics'      => ['min_pp' => round($pp, 2), 'min_irp' => round($irp, 2)],
                     ],
                 ];
             }
@@ -432,9 +433,10 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
             ],
             'progress_breakdown' => $breakdown,
             'details' => [
-                'reason' => $reason,
-                'pp'     => round($pp, 2),
-                'irp'    => $irp,
+                'reason'  => $reason,
+                'pp'      => round($pp, 2),
+                'irp'     => $irp,
+                'metrics' => ['min_pp' => round($pp, 2), 'min_irp' => $irp],
             ],
         ];
     }

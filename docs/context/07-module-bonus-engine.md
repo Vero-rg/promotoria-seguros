@@ -37,6 +37,8 @@ flowchart TD
 | `app/Services/BonusCalculators/MonthlyDevelopmentCalculator.php` | Monthly development bonus (agent PCA × tenure) |
 | `app/Services/BonusCalculators/ActivityRatioCalculator.php` | Activity ratio (weighted policies) |
 | `app/Services/BonusCalculators/AdditionalAgentsCalculator.php` | Additional agents bonus |
+| `app/Services/BonusCompensationMatrix.php` | Builds each bonus' matrix, earned payment and next-level gap for the UI |
+| `app/Services/BonusAdvanceService.php` | Monthly advances for first-year production bonuses (calc + overrides) |
 | `app/Services/CommissionService.php` | Legacy commission calculator (partially deprecated) |
 
 ---
@@ -64,6 +66,45 @@ Transforms the raw calculation result into a frontend-friendly format with:
 - `name`, `unlocked` (boolean), `progress` (0-100), `target`, `conditions[]`
 - `periodo_evaluado` / `mostrar_alerta_periodo` — real evaluation range and whether it exceeds the visual one
 - `monthly_breakdown[]` / `monthly_total` — per-month amounts for monthly bonuses in multi-month ranges
+- `matrix`, `earned`, `next_level` — see «Compensation Matrix» below
+
+### Compensation Matrix (`BonusCompensationMatrix`)
+`app/Services/BonusCompensationMatrix.php` normalizes, per bonus, everything the panel needs
+for a quick read. The orchestrator attaches it to each result:
+
+- `matrix.dependency` — prerequisite bonus name (`dependency_scheme_id`).
+- `matrix.products[]` — required products and minimum counts (`requires_product`).
+- `matrix.recruits` — quarterly recruit goals plus the current quarter and progress.
+- `matrix.anticipos[]` — minimum production per monthly advance (`anticipos_config`).
+- `matrix.equivalences[]` — PNA → policy equivalents (Activity Ratio only).
+- `matrix.rules[]` — short reading notes (vida-only, IRP minimum, etc.).
+- `matrix.tiers[]` — `label`, `requirement`, `percentage`, `payment`, `achieved`.
+  `payment` is a ready-to-print string (e.g. `Efectivo 10% · Automático 16%`).
+- `earned` — `percentage`, `fixed_amount`, `amount`, `note` (paid tier of the period).
+- `next_level` — `label`, `requirement`, `percentage`, `gaps[]` and a ready `message`
+  (e.g. «Faltan $86,400 en PCA para PCA ≥ $785,000 (36%)»). Gaps are computed from
+  `details.metrics`, a per-calculator map keyed by tier condition names
+  (`min_pp`, `min_pca`, `min_irp`, `min_policies`, `min_recruits`, `min_agents`).
+
+`monthly_development` omits `next_level` because its matrix is evaluated per agent.
+
+### Monthly Advances (`BonusAdvanceService`)
+Only the first-year production bonuses may pay **monthly advances** (`requires_anticipos`):
+`agent_first_year_production` and `first_year_production`.
+
+- Each month is evaluated over the **cumulative** quarter up to that month.
+- `advance(month) = cumulative_amount(month) − advances already paid`.
+  So when the tier rises, the next advance includes the retroactive difference.
+- `anticipos_config.month_N_min` gates the advance of month N by cumulative metric;
+  if the minimum is not met that month the advance is 0 and carries to the next month.
+- Amounts can be overridden from the panel and are stored in `bonus_advances`
+  (`scheme_id`, `user_type`, `user_id`, `period_month`, `amount`, `created_by`).
+  Overrides feed the following months' difference calculation.
+- Endpoint: `POST /bonus-advances` → `BonusAdvanceController@store`
+  (`SaveBonusAdvanceRequest`). Valid requests redirect back so Inertia refreshes props.
+- Payload: `advances = { months: [{ month, label, cumulative_amount, previous_total,
+  calculated, amount, is_override, minimum, below_minimum, unlocked, percentage }],
+  total, calculated_total, has_overrides }`.
 
 ### Period Expansion
 The orchestrator "expands" the period based on scheme frequency:
@@ -179,7 +220,7 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 - Uses `pna_equivalences` to weight each policy by its PNA bracket.
 - Calculates weighted total, divides by 3 for monthly average (trimestral).
 - Tiers match on `[min_policies, max_policies]`.
-- Payout: PCA × `agent_percentage`. The PCA base still includes every paid policy (including Primordial).
+- Payout: PCA × `agent_percentage`. The PCA base also excludes `PRIMORDIAL`, so the whole bonus works on vida policies only.
 
 **Tier conditions:** `{"classification": "Plata", "min_policies": 2.0, "max_policies": 2.99}`
 
@@ -200,12 +241,18 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 **Rules:**
 - Only applies to promoters.
 - **Requires dependency:** `dependency_scheme_id` (verified by orchestrator).
-- Counts active agents under the promoter.
-- Calculates total PP across all agents.
-- Tiers match on `[min_agents, max_agents]`.
+- **Qualified agents = agents that won the Activity Ratio bonus** in the evaluated period.
+  Each agent counts once per quarter; it must win Activity Ratio again in the next quarter.
+  Agents with no Activity Ratio scheme achieved (or without production) do not count.
+- Calculates total PP across all active agents.
+- Tiers match on `[min_agents, max_agents]`; tiers are cumulative, so a count above the
+  highest configured tier keeps that tier (e.g. 6 agents → «5+»).
 - Payout: PP × `promoter_percentage`.
+- Requires an active `activity_ratio` scheme; otherwise the bonus cannot be evaluated.
 
 **Tier conditions:** `{"min_agents": 3, "max_agents": 5}`
+
+> Nota: como los tramos son acumulativos, un conteo por encima del `max_agents` del tramo más alto conserva ese tramo.
 
 ---
 

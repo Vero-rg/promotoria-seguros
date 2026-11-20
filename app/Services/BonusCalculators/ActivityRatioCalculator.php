@@ -23,11 +23,11 @@ use Carbon\Carbon;
  *      - < $16,000 → ignoradas
  *   3. Promedio mensual = total ponderado / 3 (trimestre).
  *   4. El tier se elige por promedio mensual en [min_policies, max_policies].
- *   5. Base de pago: PCA del agente en el periodo.
+ *   5. Base de pago: PCA del agente en el periodo (solo pólizas de vida).
  *
- * Solo las pólizas de vida (METALIFE + PERFECTLIFE) participan en la
- * ponderación; las de PRIMORDIAL no suman peso ni cuentan en «Pólizas de
- * vida totales». La PCA (base de pago) sigue considerando todas las pólizas.
+ * Solo las pólizas de vida (METALIFE + PERFECTLIFE) participan en el bono:
+ * alimentan la ponderación y la PCA base. Las de PRIMORDIAL quedan fuera
+ * del cálculo completo (no suman peso ni PCA).
  *
  * Condiciones leídas de $tier->conditions:
  *   - classification  (string)    Etiqueta del tier (informativa).
@@ -40,6 +40,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
 
     /** Alias de producto que agrupa las pólizas ponderables. */
     private const VIDA_ALIAS = 'Vida';
+
     /**
      * {@inheritDoc}
      */
@@ -174,6 +175,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                         'weighted_total'   => $weightedTotal,
                         'monthly_average'  => $monthlyAverage,
                         'pca'              => round($pca, 2),
+                        'metrics'          => ['min_policies' => $monthlyAverage],
                     ],
                 ];
             }
@@ -250,13 +252,17 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
     }
 
     /**
-     * Calcula la PCA (Prima Computable Ajustada) del agente en el periodo.
+     * Calcula la PCA (base de pago) del agente en el periodo.
+     *
+     * Solo considera pólizas de vida (METALIFE + PERFECTLIFE), igual que la
+     * ponderación: las Primordial no forman parte de este bono.
      */
     private function calculateAgentPca(Agent $agent, Carbon $start, Carbon $end): float
     {
         return (float) $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->whereIn('product_type', $this->resolveProductAlias(self::VIDA_ALIAS))
             ->sum('premium_amount');
     }
 
@@ -363,7 +369,10 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                 'required_value' => $target,
             ],
             'progress_breakdown' => $breakdown,
-            'details' => ['reason' => $reason],
+            'details' => [
+                'reason'  => $reason,
+                'metrics' => ['min_policies' => $monthlyAverage],
+            ],
         ];
     }
 }
