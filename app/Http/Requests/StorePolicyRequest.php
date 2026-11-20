@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Policy;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StorePolicyRequest extends FormRequest
 {
@@ -29,10 +31,12 @@ class StorePolicyRequest extends FormRequest
             'commission_amount' => 'nullable|numeric',
             'promoter_commission_percentage' => 'nullable|numeric',
             'promoter_commission_amount' => 'nullable|numeric',
-            'isr_retention' => 'nullable|numeric',
-            'billing_retention' => 'nullable|numeric',
+            'isr_retention' => 'nullable|numeric|min:0|max:100',
+            'cedular_tax' => 'nullable|numeric|min:0|max:100',
+            'billing_retention' => 'required|numeric|min:0|max:100',
             'status' => 'nullable|string',
             'product_type' => 'nullable|string',
+            'payment_method' => ['required', Rule::in(Policy::PAYMENT_METHODS)],
         ];
     }
 
@@ -60,15 +64,17 @@ class StorePolicyRequest extends FormRequest
             'agent_id' => 'agente',
             'policy_number' => 'número de póliza',
             'issue_date' => 'fecha de emisión',
-            'premium_amount' => 'prima total',
+            'premium_amount' => 'PNA',
             'commission_percentage' => 'porcentaje de comisión (agente)',
             'commission_amount' => 'monto de comisión (agente)',
             'promoter_commission_percentage' => 'porcentaje de comisión (promotor)',
             'promoter_commission_amount' => 'monto de comisión (promotor)',
             'isr_retention' => 'retención de ISR',
+            'cedular_tax' => 'impuesto cedular',
             'billing_retention' => 'costo de facturación',
             'status' => 'estatus',
             'product_type' => 'tipo de producto',
+            'payment_method' => 'conducto de pago',
         ];
     }
 }

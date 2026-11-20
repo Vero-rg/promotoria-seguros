@@ -50,14 +50,14 @@ $totalPNA = round($policies->sum('premium_amount'), 2);
 ### 3. PCA (Prima Computable Acumulada)
 
 ```php
-$totalPCA = round($policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500)), 2);
+$totalPCA = round($policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1350)), 2);
 ```
 
-Note: The Dashboard computes PCA as `max(0, premium - 1500)` per policy, BUT the bonus calculators (e.g., `AgentFirstYearProductionCalculator`) compute PCA as raw `premium_amount` sum without the $1,500 deduction. This is a discrepancy — verify which is correct for each context.
+Note: The Dashboard computes PCA as `max(0, premium - 1350)` per policy, BUT the bonus calculators (e.g., `AgentFirstYearProductionCalculator`) compute PCA as raw `premium_amount` sum without the $1,350 deduction. This is a discrepancy — verify which is correct for each context.
 
 ### 4. Policy Volume by Product
 Counts and premium totals broken down by product type:
-- **METLIFE** (life insurance, cataloged as "Vida")
+- **METALIFE** (life insurance, cataloged as "Vida")
 - **PERFECTLIFE** (life insurance, cataloged as "Vida")
 - **PRIMORDIAL** (standalone product type)
 
@@ -124,8 +124,8 @@ Previous period is auto-calculated as same-length period immediately before the 
 ## Known Limitations / Tech Debt
 1. **No caching:** Every dashboard load re-computes ALL bonuses for ALL active agents/promoters. This will not scale.
 2. **Previous period bonus estimation:** Uses a simplified `calculateProjectedBonuses()` method instead of re-running the orchestrator. This means period-over-period bonus growth is approximate.
-3. **Hardcoded product types:** METLIFE, PERFECTLIFE, PRIMORDIAL are string literals in the controller. Adding a product requires code changes.
+3. **Hardcoded product types:** METALIFE, PERFECTLIFE, PRIMORDIAL are string literals in the controller. Adding a product requires code changes.
 4. **Alert limit of 20:** Hard ceiling at 20 alerts. No prioritization beyond the iteration order (top agents by volume, then top promoters).
 5. **Promoter bonus period:** For promoter bonuses, the system fetches policies over the FULL quarter (`startOfQuarter` to `endOfQuarter`) rather than the selected visual period. This is correct for quarterly bonuses but may confuse users viewing a monthly filter.
-6. **PCA formula discrepancy:** Dashboard computes PCA as `max(0, premium - 1500)`. Bonus calculators (e.g., `AgentFirstYearProductionCalculator`) compute PCA as raw `premium_amount` sum. These are different formulas — verify which is correct.
+6. **PCA formula discrepancy:** Dashboard computes PCA as `max(0, premium - 1350)`. Bonus calculators (e.g., `AgentFirstYearProductionCalculator`) compute PCA as raw `premium_amount` sum. These are different formulas — verify which is correct.
 7. **Full source:** `DashboardController.php` is ~550 lines. See the repository file directly. The key formulas are documented above with exact source code.

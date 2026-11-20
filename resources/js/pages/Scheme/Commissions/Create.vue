@@ -13,7 +13,7 @@ const form = useForm({
     starts_at: new Date().toISOString().split('T')[0],
     ends_at: '', // Nueva propiedad opcional
     tiers: [
-        { product_type: 'METLIFE', agent_percentage: undefined, promoter_percentage: undefined },
+        { product_type: 'METALIFE', agent_percentage: undefined, promoter_percentage: undefined },
         { product_type: 'PERFECTLIFE', agent_percentage: undefined, promoter_percentage: undefined },
         { product_type: 'PRIMORDIAL', agent_percentage: undefined, promoter_percentage: undefined }
     ]
@@ -130,7 +130,7 @@ const submit = () => {
                                 <div v-for="(tier, index) in form.tiers" :key="index" class="flex flex-wrap md:flex-nowrap items-end gap-4 p-4 border rounded-md bg-gray-50">
                                     <div class="flex-1 min-w-[200px]">
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Producto</label>
-                                        <el-input v-model="tier.product_type" placeholder="Ej. METLIFE" required />
+                                        <el-input v-model="tier.product_type" placeholder="Ej. METALIFE" required />
                                     </div>
                                     <div class="flex-1 min-w-[150px]">
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Comisión Agente (%)</label>

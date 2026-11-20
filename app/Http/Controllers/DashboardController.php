@@ -79,20 +79,20 @@ class DashboardController extends Controller
 
         // PNA (Prima Neta Acumulada / Prima Pagada) y PCA (Prima Computable Acumulada)
         // PNA = total de prima pagada por el cliente (suma de premium_amount)
-        // PCA = PNA - $1,500 por cada póliza (mín $0 por póliza). Es la base para cálculos de bonos.
+        // PCA = PNA - $1,350 por cada póliza (mín $0 por póliza). Es la base para cálculos de bonos.
         $totalPNA = round($policies->sum('premium_amount'), 2);
         $prevPNA = round($prevPolicies->sum('premium_amount'), 2);
-        $totalPCA = round($policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500)), 2);
-        $prevPCA = round($prevPolicies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500)), 2);
+        $totalPCA = round($policies->sum(fn($p) => $p->pcaAmount()), 2);
+        $prevPCA = round($prevPolicies->sum(fn($p) => $p->pcaAmount()), 2);
 
         // Volumen de Pólizas (por tipo de producto) — usando nombres reales
         $policiesByProduct = [
-            'METLIFE' => $policies->where('product_type', 'METLIFE')->count(),
+            'METALIFE' => $policies->where('product_type', 'METALIFE')->count(),
             'PERFECTLIFE' => $policies->where('product_type', 'PERFECTLIFE')->count(),
             'PRIMORDIAL' => $policies->where('product_type', 'PRIMORDIAL')->count(),
         ];
         $prevPoliciesByProduct = [
-            'METLIFE' => $prevPolicies->where('product_type', 'METLIFE')->count(),
+            'METALIFE' => $prevPolicies->where('product_type', 'METALIFE')->count(),
             'PERFECTLIFE' => $prevPolicies->where('product_type', 'PERFECTLIFE')->count(),
             'PRIMORDIAL' => $prevPolicies->where('product_type', 'PRIMORDIAL')->count(),
         ];
@@ -102,12 +102,12 @@ class DashboardController extends Controller
 
         // Premios vendidos por producto (volumen en $)
         $premiumByProduct = [
-            'METLIFE' => round($policies->where('product_type', 'METLIFE')->sum('premium_amount'), 2),
+            'METALIFE' => round($policies->where('product_type', 'METALIFE')->sum('premium_amount'), 2),
             'PERFECTLIFE' => round($policies->where('product_type', 'PERFECTLIFE')->sum('premium_amount'), 2),
             'PRIMORDIAL' => round($policies->where('product_type', 'PRIMORDIAL')->sum('premium_amount'), 2),
         ];
         $prevPremiumByProduct = [
-            'METLIFE' => round($prevPolicies->where('product_type', 'METLIFE')->sum('premium_amount'), 2),
+            'METALIFE' => round($prevPolicies->where('product_type', 'METALIFE')->sum('premium_amount'), 2),
             'PERFECTLIFE' => round($prevPolicies->where('product_type', 'PERFECTLIFE')->sum('premium_amount'), 2),
             'PRIMORDIAL' => round($prevPolicies->where('product_type', 'PRIMORDIAL')->sum('premium_amount'), 2),
         ];
@@ -208,7 +208,7 @@ class DashboardController extends Controller
 
             $policiesCount = $agent->policies->count();
             $totalVolume = round($agent->policies->sum('premium_amount'), 2);
-            $pca = round($agent->policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500)), 2);
+            $pca = round($agent->policies->sum(fn($p) => $p->pcaAmount()), 2);
 
             // ── Comisiones: calcular lo generado vs lo potencial ──────
             $productCommissionMap = app(\App\Http\Controllers\PolicyController::class)->getProductCommissionMap();
@@ -687,7 +687,7 @@ class DashboardController extends Controller
 
     /**
      * Calcula la proyección de bonos basado en esquemas activos y pólizas actuales.
-     * PCA = PNA - $1,500 por póliza (base para cálculos de bonos).
+     * PCA = PNA - $1,350 por póliza (base para cálculos de bonos).
      *
      * IMPORTANTE: No se puede usar ?? para encadenar porcentajes porque un 0
      * legítimo en una columna (ej. agent_percentage = 0 en un esquema de
@@ -699,7 +699,7 @@ class DashboardController extends Controller
         $total = 0;
 
         // PCA total del periodo (base para proyecciones porcentuales)
-        $totalPCA = $policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500));
+        $totalPCA = $policies->sum(fn($p) => $p->pcaAmount());
 
         foreach ($bonusSchemes as $scheme) {
             $latestVersion = $scheme->versions()->orderByDesc('starts_at')->first();
@@ -794,7 +794,7 @@ class DashboardController extends Controller
                     $productType = is_array($item) ? ($item['product_type'] ?? '') : $item;
                     if ($productType === '') continue;
 
-                    // Resolver alias: 'Vida' → ['METLIFE', 'PERFECTLIFE']
+                    // Resolver alias: 'Vida' → ['METALIFE', 'PERFECTLIFE']
                     $resolvedTypes = $this->resolveProductTypesForAlert($productType);
 
                     // Contar pólizas del agente este mes
@@ -834,7 +834,7 @@ class DashboardController extends Controller
      */
     private function resolveProductTypesForAlert(string $productType): array
     {
-        $aliases = ['Vida' => ['METLIFE', 'PERFECTLIFE']];
+        $aliases = ['Vida' => ['METALIFE', 'PERFECTLIFE']];
         return $aliases[$productType] ?? [$productType];
     }
 }

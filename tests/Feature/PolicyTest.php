@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Agent;
 use App\Models\Policy;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -10,8 +12,8 @@ use Tests\TestCase;
  * Suite de pruebas para el modelo Policy.
  *
  * REGLA DE NEGOCIO VIGENTE:
- *   - ISR y costo de facturación se deducen de las COMISIONES (agente y promotor),
- *     NO de la prima total.
+ *   - ISR, impuesto cedular y costo de facturación se deducen de las COMISIONES
+ *     (agente y promotor), en ese orden secuencial y NO de la prima total.
  *   - Solo las pólizas en STATUS_PAGADA acumulan para comisiones y montos netos.
  *   - STATUS_ACTIVA y STATUS_NO_TOMADA retornan 0 en todos los cálculos netos.
  */
@@ -24,7 +26,7 @@ class PolicyTest extends TestCase
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * 🟢 agentNetAmount: comisión bruta $10,000 − ISR 10% − facturación 5% = $8,500.
+     * 🟢 agentNetAmount: comisión bruta $10,000 − ISR 10% − cedular 5% − facturación 5% = $8,122.50.
      */
     public function test_agent_net_amount_with_pagada_status(): void
     {
@@ -34,17 +36,19 @@ class PolicyTest extends TestCase
             'commission_amount'            => 10_000.00,
             'promoter_commission_amount'   => 5_000.00,
             'isr_retention'                => 10.00,
+            'cedular_tax'                  => 5.00,
             'billing_retention'            => 5.00,
         ]);
 
-        // Agente: secuencial — ISR primero, facturación sobre el remanente
+        // Agente: secuencial — ISR, luego cedular, luego facturación
         // ISR = $10,000 × 10% = $1,000 → after ISR = $9,000
-        // Facturación = $9,000 × 5% = $450 → neto = $8,550
-        $this->assertEquals(8_550.00, $policy->agentNetAmount());
+        // Cedular = $9,000 × 5% = $450 → after cedular = $8,550
+        // Facturación = $8,550 × 5% = $427.50 → neto = $8,122.50
+        $this->assertEquals(8_122.50, $policy->agentNetAmount());
     }
 
     /**
-     * 🟢 promoterNetAmount: comisión bruta $5,000 − ISR 10% − facturación 5% = $4,250.
+     * 🟢 promoterNetAmount: comisión bruta $5,000 − ISR 10% − cedular 5% − facturación 5% = $4,061.25.
      */
     public function test_promoter_net_amount_with_pagada_status(): void
     {
@@ -54,17 +58,19 @@ class PolicyTest extends TestCase
             'commission_amount'            => 10_000.00,
             'promoter_commission_amount'   => 5_000.00,
             'isr_retention'                => 10.00,
+            'cedular_tax'                  => 5.00,
             'billing_retention'            => 5.00,
         ]);
 
-        // Promotor: secuencial — ISR primero, facturación sobre el remanente
+        // Promotor: secuencial — ISR, luego cedular, luego facturación
         // ISR = $5,000 × 10% = $500 → after ISR = $4,500
-        // Facturación = $4,500 × 5% = $225 → neto = $4,275
-        $this->assertEquals(4_275.00, $policy->promoterNetAmount());
+        // Cedular = $4,500 × 5% = $225 → after cedular = $4,275
+        // Facturación = $4,275 × 5% = $213.75 → neto = $4,061.25
+        $this->assertEquals(4_061.25, $policy->promoterNetAmount());
     }
 
     /**
-     * 🟢 netAmount: prima $100K − agentNet $8,500 − promoterNet $4,250 = $87,250.
+     * 🟢 netAmount: suma de comisiones netas de agente y promotor.
      */
     public function test_net_amount_with_pagada_status(): void
     {
@@ -74,11 +80,12 @@ class PolicyTest extends TestCase
             'commission_amount'            => 10_000.00,
             'promoter_commission_amount'   => 5_000.00,
             'isr_retention'                => 10.00,
+            'cedular_tax'                  => 5.00,
             'billing_retention'            => 5.00,
         ]);
 
-        // netAmount = agentNetAmount + promoterNetAmount = $8,550 + $4,275 = $12,825
-        $this->assertEquals(12_825.00, $policy->netAmount());
+        // netAmount = agentNetAmount + promoterNetAmount = $8,122.50 + $4,061.25 = $12,183.75
+        $this->assertEquals(12_183.75, $policy->netAmount());
     }
 
     /**
@@ -92,14 +99,27 @@ class PolicyTest extends TestCase
             'commission_amount'            => 5_000.00,
             'promoter_commission_amount'   => 0.00,
             'isr_retention'                => 10.00,
+            'cedular_tax'                  => 5.00,
             'billing_retention'            => 5.00,
         ]);
 
-        // Agente neto: ISR = $500 → after ISR = $4,500 → facturación = $225 → neto = $4,275
-        // netAmount: $4,275 + $0 = $4,275
-        $this->assertEquals(4_275.00, $policy->agentNetAmount());
+        // Agente neto: ISR = $500 → $4,500 → cedular = $225 → $4,275 → facturación = $213.75 → $4,061.25
+        // netAmount: $4,061.25 + $0 = $4,061.25
+        $this->assertEquals(4_061.25, $policy->agentNetAmount());
         $this->assertEquals(0.00, $policy->promoterNetAmount());
-        $this->assertEquals(4_275.00, $policy->netAmount());
+        $this->assertEquals(4_061.25, $policy->netAmount());
+    }
+
+    /**
+     * 🟢 pcaAmount: PNA menos la deducción fija por póliza, sin negativos.
+     */
+    public function test_pca_amount_discounts_fixed_per_policy_amount(): void
+    {
+        $policy = Policy::factory()->create(['premium_amount' => 100_000.00]);
+        $smallPolicy = Policy::factory()->create(['premium_amount' => 1_000.00]);
+
+        $this->assertEquals(98_650.00, $policy->pcaAmount());
+        $this->assertEquals(0.00, $smallPolicy->pcaAmount());
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -201,12 +221,32 @@ class PolicyTest extends TestCase
             'commission_amount'            => 10_000.00,
             'promoter_commission_amount'   => 5_000.00,
             'isr_retention'                => 0.00,
+            'cedular_tax'                  => 0.00,
             'billing_retention'            => 0.00,
         ]);
 
         $this->assertEquals(10_000.00, $policy->agentNetAmount());
         $this->assertEquals(5_000.00, $policy->promoterNetAmount());
         $this->assertEquals(15_000.00, $policy->netAmount());
+    }
+
+    /**
+     * 🟡 Solo impuesto cedular (5%): se descuenta de la comisión.
+     */
+    public function test_cedular_tax_is_deducted_from_commission(): void
+    {
+        $policy = Policy::factory()->create([
+            'status'                       => Policy::STATUS_PAGADA,
+            'premium_amount'               => 100_000.00,
+            'commission_amount'            => 10_000.00,
+            'promoter_commission_amount'   => 0.00,
+            'isr_retention'                => 0.00,
+            'cedular_tax'                  => 5.00,
+            'billing_retention'            => 0.00,
+        ]);
+
+        // Cedular = $10,000 × 5% = $500 → neto = $9,500
+        $this->assertEquals(9_500.00, $policy->agentNetAmount());
     }
 
     /**
@@ -220,6 +260,7 @@ class PolicyTest extends TestCase
             'commission_amount'            => 0.00,
             'promoter_commission_amount'   => 0.00,
             'isr_retention'                => 10.00,
+            'cedular_tax'                  => 5.00,
             'billing_retention'            => 5.00,
         ]);
 
@@ -239,11 +280,83 @@ class PolicyTest extends TestCase
             'commission_amount'            => 10_000.00,
             'promoter_commission_amount'   => 5_000.00,
             'isr_retention'                => 0.00,
+            'cedular_tax'                  => 0.00,
             'billing_retention'            => 0.00,
         ]);
 
         $this->assertEquals(10_000.00, $policy->agentNetAmount());
         $this->assertEquals(5_000.00, $policy->promoterNetAmount());
         $this->assertEquals(15_000.00, $policy->netAmount());
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🟡 TESTS: ALTA DE PÓLIZAS (HTTP)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 🟡 El costo de facturación es obligatorio al registrar una póliza.
+     */
+    public function test_billing_retention_is_required_when_storing_a_policy(): void
+    {
+        $user = User::factory()->create();
+        $agent = Agent::factory()->create();
+
+        $response = $this->actingAs($user)->post(route('policies.store'), [
+            'agent_id'       => $agent->id,
+            'policy_number'  => '123456',
+            'issue_date'     => '2026-01-15',
+            'premium_amount' => 50_000,
+            'payment_method' => 'Efectivo',
+        ]);
+
+        $response->assertSessionHasErrors('billing_retention');
+        $this->assertDatabaseCount('policies', 0);
+    }
+
+    /**
+     * 🟡 El conducto de pago es obligatorio al registrar una póliza.
+     */
+    public function test_payment_method_is_required_when_storing_a_policy(): void
+    {
+        $user = User::factory()->create();
+        $agent = Agent::factory()->create();
+
+        $response = $this->actingAs($user)->post(route('policies.store'), [
+            'agent_id'          => $agent->id,
+            'policy_number'     => '123456',
+            'issue_date'        => '2026-01-15',
+            'premium_amount'    => 50_000,
+            'billing_retention' => 5,
+        ]);
+
+        $response->assertSessionHasErrors('payment_method');
+        $this->assertDatabaseCount('policies', 0);
+    }
+
+    /**
+     * 🟡 Al registrar una póliza, el impuesto cedular toma el 5% por defecto.
+     */
+    public function test_store_policy_defaults_cedular_tax_to_five_percent(): void
+    {
+        $user = User::factory()->create();
+        $agent = Agent::factory()->create();
+
+        $this->actingAs($user)->post(route('policies.store'), [
+            'agent_id'          => $agent->id,
+            'policy_number'     => '987654321',
+            'client_name'       => 'Cliente de prueba',
+            'issue_date'        => '2026-01-15',
+            'premium_amount'    => 50_000,
+            'billing_retention' => 4,
+            'product_type'      => 'METALIFE',
+            'payment_method'    => 'Automático',
+        ])->assertRedirect(route('policies.index'));
+
+        $policy = Policy::firstOrFail();
+
+        $this->assertEquals('5.00', $policy->cedular_tax);
+        $this->assertEquals('4.00', $policy->billing_retention);
+        $this->assertEquals('METALIFE', $policy->product_type);
+        $this->assertEquals('Automático', $policy->payment_method);
     }
 }

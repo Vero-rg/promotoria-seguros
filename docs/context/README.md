@@ -60,7 +60,7 @@ Provide:
 | **Agente** | Individual sales agent (sells policies) |
 | **Póliza** | Insurance policy (a sale) |
 | **PNA** | Gross premium (Prima Neta Acumulada) |
-| **PCA** | Computable premium (PNA - $1,500 per policy) |
+| **PCA** | Computable premium (PNA - $1,350 per policy) |
 | **PP** | Primary Production (sum of premiums) |
 | **IRP** | Policy Retention Index |
 | **ISR** | Income tax retention |

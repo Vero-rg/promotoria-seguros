@@ -195,6 +195,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
                         'version_name' => $version->version_name,
                         'pp'           => round($pp, 2),
                         'irp'          => round($irp, 2),
+                        'metrics'      => ['min_pp' => round($pp, 2), 'min_irp' => round($irp, 2)],
                     ],
                 ];
             }
@@ -298,7 +299,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
 
     /**
      * Cuenta las pólizas de un tipo de producto específico en el periodo.
-     * Soporta alias: 'Vida' cuenta METLIFE + PERFECTLIFE.
+     * Soporta alias: 'Vida' cuenta METALIFE + PERFECTLIFE.
      */
     private function countPoliciesByType(Promoter $promoter, string $productType, Carbon $start, Carbon $end): int
     {
@@ -432,9 +433,10 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
             ],
             'progress_breakdown' => $breakdown,
             'details' => [
-                'reason' => $reason,
-                'pp'     => round($pp, 2),
-                'irp'    => $irp,
+                'reason'  => $reason,
+                'pp'      => round($pp, 2),
+                'irp'     => $irp,
+                'metrics' => ['min_pp' => round($pp, 2), 'min_irp' => $irp],
             ],
         ];
     }

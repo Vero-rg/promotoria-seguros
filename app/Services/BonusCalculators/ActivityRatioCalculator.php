@@ -15,7 +15,7 @@ use Carbon\Carbon;
  *
  * REGLAS DE NEGOCIO:
  *   1. El Agente DEBE haber ganado el bono prerequisite (dependency_scheme_id).
- *   2. Cada póliza se pondera según su PNA (pna_equivalences del esquema):
+ *   2. Cada póliza de VIDA se pondera según su PNA (pna_equivalences del esquema):
  *      - $16,000–$20,999 → 0.5 pólizas
  *      - $21,000–$59,999 → 1.0 póliza
  *      - $60,000–$119,999 → 1.5 pólizas
@@ -23,7 +23,11 @@ use Carbon\Carbon;
  *      - < $16,000 → ignoradas
  *   3. Promedio mensual = total ponderado / 3 (trimestre).
  *   4. El tier se elige por promedio mensual en [min_policies, max_policies].
- *   5. Base de pago: PCA del agente en el periodo.
+ *   5. Base de pago: PCA del agente en el periodo (solo pólizas de vida).
+ *
+ * Solo las pólizas de vida (METALIFE + PERFECTLIFE) participan en el bono:
+ * alimentan la ponderación y la PCA base. Las de PRIMORDIAL quedan fuera
+ * del cálculo completo (no suman peso ni PCA).
  *
  * Condiciones leídas de $tier->conditions:
  *   - classification  (string)    Etiqueta del tier (informativa).
@@ -32,6 +36,11 @@ use Carbon\Carbon;
  */
 class ActivityRatioCalculator implements BonusCalculatorInterface
 {
+    use ProductAliasResolver;
+
+    /** Alias de producto que agrupa las pólizas ponderables. */
+    private const VIDA_ALIAS = 'Vida';
+
     /**
      * {@inheritDoc}
      */
@@ -135,8 +144,8 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                             '_isDependency' => true,
                         ],
                         [
-                            'label'   => 'Pólizas Totales',
-                            'current' => $this->getRawPolicyCount($user, $periodStart, $periodEnd),
+                            'label'   => 'Pólizas de vida totales',
+                            'current' => $this->getVidaPolicyCount($user, $periodStart, $periodEnd),
                             'target'  => 0,
                             'met'     => true,
                         ],
@@ -166,6 +175,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                         'weighted_total'   => $weightedTotal,
                         'monthly_average'  => $monthlyAverage,
                         'pca'              => round($pca, 2),
+                        'metrics'          => ['min_policies' => $monthlyAverage],
                     ],
                 ];
             }
@@ -175,7 +185,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
             reason: "Promedio mensual: {$monthlyAverage} — sin tier coincidente.",
             monthlyAverage: $monthlyAverage,
             weightedTotal: $weightedTotal,
-            rawCount: $this->getRawPolicyCount($user, $periodStart, $periodEnd),
+            rawCount: $this->getVidaPolicyCount($user, $periodStart, $periodEnd),
             pca: $pca,
             minRequired: $tiers->last()?->conditions['min_policies'] ?? 0,
             prerequisiteName: $prerequisiteName,
@@ -186,7 +196,10 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
     // ── Helpers ─────────────────────────────────────────────────────────
 
     /**
-     * Calcula el total de pólizas ponderadas según las equivalencias PNA.
+     * Calcula el total de pólizas de vida ponderadas según las equivalencias PNA.
+     *
+     * Solo se consideran pólizas de vida (METALIFE + PERFECTLIFE); las
+     * Primordial quedan fuera de la ponderación.
      *
      * @param  Agent  $agent
      * @param  array  $equivalences  Esquema de equivalencias PNA del Scheme.
@@ -201,6 +214,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
         $policies = $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->whereIn('product_type', $this->resolveProductAlias(self::VIDA_ALIAS))
             ->get();
 
         if ($policies->isEmpty() || empty($equivalences)) {
@@ -238,24 +252,29 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
     }
 
     /**
-     * Calcula la PCA (Prima Computable Ajustada) del agente en el periodo.
+     * Calcula la PCA (base de pago) del agente en el periodo.
+     *
+     * Solo considera pólizas de vida (METALIFE + PERFECTLIFE), igual que la
+     * ponderación: las Primordial no forman parte de este bono.
      */
     private function calculateAgentPca(Agent $agent, Carbon $start, Carbon $end): float
     {
         return (float) $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->whereIn('product_type', $this->resolveProductAlias(self::VIDA_ALIAS))
             ->sum('premium_amount');
     }
 
     /**
-     * Cuenta las pólizas sin ponderar (solo para progreso informativo).
+     * Cuenta las pólizas de vida sin ponderar (solo para progreso informativo).
      */
-    private function getRawPolicyCount(Agent $agent, Carbon $start, Carbon $end): int
+    private function getVidaPolicyCount(Agent $agent, Carbon $start, Carbon $end): int
     {
         return $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->whereIn('product_type', $this->resolveProductAlias(self::VIDA_ALIAS))
             ->count();
     }
 
@@ -315,7 +334,7 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
         }
 
         $breakdown[] = [
-            'label'   => 'Pólizas Totales',
+            'label'   => 'Pólizas de vida totales',
             'current' => $rawCount,
             'target'  => 0,
             'met'     => $rawCount > 0,
@@ -350,7 +369,10 @@ class ActivityRatioCalculator implements BonusCalculatorInterface
                 'required_value' => $target,
             ],
             'progress_breakdown' => $breakdown,
-            'details' => ['reason' => $reason],
+            'details' => [
+                'reason'  => $reason,
+                'metrics' => ['min_policies' => $monthlyAverage],
+            ],
         ];
     }
 }

@@ -116,15 +116,17 @@ Insurance policies sold by agents. This is the transactional heart of the system
 | `policy_number` | VARCHAR(255) | Unique. External insurance company policy number. |
 | `client_name` | VARCHAR(255) | Nullable. Name of the insured client. |
 | `issue_date` | DATE | Date policy was issued |
-| `premium_amount` | DECIMAL(12,2) | Total premium (prima) amount in MXN |
+| `premium_amount` | DECIMAL(12,2) | PNA: gross premium amount in MXN |
 | `commission_percentage` | DECIMAL(5,2) | Agent commission percentage. Default 0. |
 | `commission_amount` | DECIMAL(12,2) | Agent commission amount (calculated). Default 0. |
 | `promoter_commission_percentage` | DECIMAL(5,2) | Promoter override commission %. Default 0. |
 | `promoter_commission_amount` | DECIMAL(12,2) | Promoter override commission amount. Default 0. |
 | `isr_retention` | DECIMAL(5,2) | ISR (tax) retention percentage. Default 10%. |
-| `billing_retention` | DECIMAL(5,2) | Billing/factoring cost percentage. Default 5%. |
+| `cedular_tax` | DECIMAL(5,2) | Impuesto cedular percentage. Default 5%. |
+| `billing_retention` | DECIMAL(5,2) | Billing/factoring cost percentage. Nullable, no default (required on create/edit). |
 | `status` | VARCHAR(255) | One of: `Activa`, `No tomada`, `Pagada`. Default `Activa`. |
-| `product_type` | VARCHAR(255) | Nullable. Product: `METLIFE`, `PERFECTLIFE`, `PRIMORDIAL`. |
+| `product_type` | VARCHAR(255) | Nullable. Product: `METALIFE`, `PERFECTLIFE`, `PRIMORDIAL`. |
+| `payment_method` | VARCHAR(255) | Not nullable, default `Automático`. Payment channel: `Efectivo`, `Automático`. Legacy rows without a channel were backfilled to `Automático`. |
 | `created_at` | TIMESTAMP | |
 | `updated_at` | TIMESTAMP | |
 
@@ -140,7 +142,8 @@ Activa ──→ Pagada   (policy premium was fully paid)
 Status colors for UI: Activa = green, No tomada = gray, Pagada = blue.
 
 **Key Methods on Model:**
-- `netAmount()` — Calculates net income: `premium_amount` minus commission costs (ISR + billing deducted).
+- `pcaAmount()` — Prima Computable Acumulada: `max(0, premium_amount − 1_350)`. Base for commissions and bonuses.
+- `netAmount()` — Calculates net income: agent + promoter net commissions (ISR, cedular and billing deducted sequentially).
 - `changeStatus($newStatus)` — Validated status transition.
 - `activate()`, `markAsNoTomada()`, `markAsPaid()` — Convenience methods.
 
@@ -224,8 +227,8 @@ Tiers are conditional brackets within a scheme version. When evaluating compensa
 | `id` | BIGINT (PK) | Auto-increment |
 | `scheme_version_id` | BIGINT FK → `scheme_versions.id` | `ON DELETE CASCADE` |
 | `conditions` | JSON | Flexible conditions object (see below) |
-| `agent_percentage` | DECIMAL(5,2) | Default 0. Agent's percentage if this tier is met. |
-| `agent_automatic_percentage` | DECIMAL(5,2) | Default 0. Guaranteed bonus percentage for agent (bono garantizado). |
+| `agent_percentage` | DECIMAL(5,2) | Default 0. Agent's percentage if this tier is met. For `agent_first_year_production` this is the **Bono Efectivo (%)**. |
+| `agent_automatic_percentage` | DECIMAL(5,2) | Default 0. Automatic-payment bonus percentage for the agent (**Bono Automático (%)**). |
 | `promoter_percentage` | DECIMAL(5,2) | Default 0. Promoter's percentage if this tier is met. |
 | `fixed_amount` | DECIMAL(12,2) | Nullable. Fixed dollar amount alternative to percentage. |
 | `created_at` | TIMESTAMP | |
@@ -244,7 +247,7 @@ Tiers are conditional brackets within a scheme version. When evaluating compensa
 | Monthly Development | `min_pca`, `min_month`, `max_month` | `{"min_pca": 15000, "min_month": 0, "max_month": 12}` |
 | Activity Ratio | `classification`, `min_policies`, `max_policies` | `{"classification": "Plata", "min_policies": 2.0, "max_policies": 2.99}` |
 | Additional Agents | `min_agents`, `max_agents` | `{"min_agents": 3, "max_agents": 5}` |
-| Commission (product) | `product_type` | `{"product_type": "METLIFE"}` |
+| Commission (product) | `product_type` | `{"product_type": "METALIFE"}` |
 
 ---
 

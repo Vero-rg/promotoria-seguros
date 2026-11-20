@@ -56,7 +56,7 @@ const breadcrumbs = [
 ];
 
 const productLabels = {
-    'METLIFE': 'Vida (METLIFE)',
+    'METALIFE': 'Vida (METALIFE)',
     'PERFECTLIFE': 'Vida (PERFECTLIFE)',
     'PRIMORDIAL': 'Primordial',
     '1': 'Producto 1', '2': 'Producto 2', '3': 'Producto 3',
@@ -311,7 +311,7 @@ const toggleAgent = (agentId) => {
                     </div>
 
                     <!-- Panel de Bonos -->
-                    <BonusPanel :bonuses="stats.bonuses" type="agent" />
+                    <BonusPanel :bonuses="stats.bonuses" type="agent" :user-id="entity.id" />
                 </div>
             </template>
 
@@ -442,7 +442,7 @@ const toggleAgent = (agentId) => {
                     </div>
 
                     <!-- ▸ Columna Derecha: Ruta de Bonos (Timeline Stepper) -->
-                    <BonusPanel :bonuses="stats.bonuses" type="promoter" />
+                    <BonusPanel :bonuses="stats.bonuses" type="promoter" :user-id="entity.id" />
 
                 </div>
 

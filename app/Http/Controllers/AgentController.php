@@ -109,6 +109,7 @@ class AgentController extends Controller
             periodEnd: $visualEnd,
             visualRangeStart: $visualStart,
             visualRangeEnd: $visualEnd,
+            monthlyView: true,
         );
 
         $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);

@@ -171,7 +171,7 @@ const formatNumber = (v: number) =>
                     icon-color-class="text-blue-600"
                     :growth="kpis?.policies_growth"
                     :detail="[
-                        { label: 'METLIFE', current: kpis?.policies_by_product?.METLIFE || 0 },
+                        { label: 'METALIFE', current: kpis?.policies_by_product?.METALIFE || 0 },
                         { label: 'PERFECTLIFE', current: kpis?.policies_by_product?.PERFECTLIFE || 0 },
                         { label: 'PRIMORDIAL', current: kpis?.policies_by_product?.PRIMORDIAL || 0 },
                     ]"

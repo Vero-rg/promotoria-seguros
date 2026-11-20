@@ -136,6 +136,10 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
                     'highest_individual_pca' => round($highestPca, 2),
                     'total_qualified_pca'   => round($totalQualifiedPca, 2),
                     'individual_pcas'       => array_map(fn ($v) => round($v, 2), $recruitPcas),
+                    'metrics'               => [
+                        'min_recruits' => $totalRecruits,
+                        'min_pca'      => round($highestPca, 2),
+                    ],
                 ],
             ];
         }
@@ -195,8 +199,8 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
         $result = [];
 
         foreach ($recruits as $recruit) {
-            // PCA = PNA − $1,500 por póliza (mínimo $0)
-            $pca = $recruit->policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500));
+            // PCA = PNA − $1,350 por póliza (mínimo $0)
+            $pca = $recruit->policies->sum(fn($p) => max(0, (float) $p->premium_amount - Policy::PCA_DEDUCTION));
             $result[$recruit->id] = (float) $pca;
         }
 
@@ -290,6 +294,10 @@ class ConnectionBonusCalculator implements BonusCalculatorInterface
                 'reason'         => $reason,
                 'total_recruits' => $totalRecruits,
                 'total_pca'      => round($totalQualifiedPca, 2),
+                'metrics'        => [
+                    'min_recruits' => $totalRecruits,
+                    'min_pca'      => round($highestPca, 2),
+                ],
             ],
         ];
     }

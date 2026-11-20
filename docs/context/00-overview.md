@@ -171,7 +171,7 @@ User (system admin)
 | Term | Spanish | Definition |
 |------|---------|------------|
 | PNA | Prima Neta Acumulada | Total gross premium paid by clients. Sum of `premium_amount`. |
-| PCA | Prima Computable Acumulada | PNA minus $1,500 per policy (the "computable" base for bonuses). |
+| PCA | Prima Computable Acumulada | PNA minus $1,350 per policy (the "computable" base for bonuses). |
 | PP | Producción Primaria | Primary Production — sum of premiums in a period. |
 | IRP | Índice de Retención de Pólizas | Policy retention index = (active policies / total policies) × 100. |
 | ISR | Impuesto Sobre la Renta | Income tax retention (default 10%). |
@@ -238,8 +238,8 @@ User (system admin)
 1. **No API layer:** The app is purely Inertia-based with no REST/GraphQL endpoints. Adding a mobile app or external integration would require building a separate API.
 2. **CommissionService vs BonusOrchestrator:** `CommissionService` is a legacy class (`app/Services/CommissionService.php`) that still references old schema structure (`code` field, `percentage`). It's partially superseded by `BonusOrchestratorService` but still present.
 3. **Dashboard performance:** The DashboardController iterates over ALL active agents and promoters with their policies to calculate bonuses and alerts. This could become slow with thousands of records. No caching or pagination for bonus calculations.
-4. **Product types are hardcoded:** METLIFE, PERFECTLIFE, PRIMORDIAL appear as string literals throughout the codebase. Adding a new product requires code changes in multiple places.
+4. **Product types are hardcoded:** METALIFE, PERFECTLIFE, PRIMORDIAL appear as string literals throughout the codebase. Adding a new product requires code changes in multiple places.
 5. **Migration history shows refactoring:** The `2026_05_28_000002` migration removed `scheme_type`/`scheme_id` from policies table, indicating the commission model was restructured. Some cleanup may remain.
 6. **Spanish/English mixing:** Code is in English (class names, methods), but user-facing strings, comments, and route names use Spanish. This is intentional for the Mexican market.
 7. **Scheme deactivation logic:** Activating a commission deactivates ALL other commissions. Activating a bonus deactivates other bonuses with the same name. This is enforced in `SchemeController@store`.
-8. **agent_automatic_percentage:** A field was added to `scheme_tiers` for "guaranteed bonus" (bono garantizado). Its usage in the calculation engine may still be under development.
+8. **agent_automatic_percentage:** Used by `AgentFirstYearProductionCalculator` as the **Bono Automático (%)**. Policies paid automatically use this percentage; if ≥60% of the quarter's policies are automatic, the whole PCA is paid with it. The cash counterpart is `agent_percentage` (**Bono Efectivo %**).

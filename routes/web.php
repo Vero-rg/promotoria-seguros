@@ -6,8 +6,10 @@ use Inertia\Inertia;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\PromoterController;
 use App\Http\Controllers\PolicyController;
+use App\Http\Controllers\PolicyImportController;
 use App\Http\Controllers\SchemeController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\BonusAdvanceController;
 
 // Redirección inicial
 Route::redirect('/', '/login');
@@ -26,9 +28,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Cambiados de apiResource a resource para permitir el retorno de vistas con Inertia
     Route::resource('promoters', PromoterController::class);
     Route::resource('agents', AgentController::class);
+    Route::get('policies/import/template', [PolicyImportController::class, 'template'])->name('policies.import.template');
+    Route::post('policies/import', [PolicyImportController::class, 'import'])->name('policies.import');
     Route::resource('policies', PolicyController::class);
     Route::patch('policies/{policy}/status', [PolicyController::class, 'updateStatus'])->name('policies.status');
     Route::resource('schemes', SchemeController::class);
+    Route::post('bonus-advances', [BonusAdvanceController::class, 'store'])
+        ->name('bonus-advances.store');
 
     // Módulo de Esquemas
     Route::prefix('esquemas')->name('esquemas.')->group(function () {

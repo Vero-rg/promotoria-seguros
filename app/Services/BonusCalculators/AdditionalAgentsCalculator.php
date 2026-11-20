@@ -9,21 +9,31 @@ use App\Models\Scheme;
 use App\Models\SchemeTier;
 use App\Models\SchemeVersion;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Calcula el Bono Adicional por Agentes con Compensación Trimestral.
  *
  * REGLAS DE NEGOCIO:
  *   1. El Promoter DEBE haber ganado el bono prerequisite (dependency_scheme_id).
- *   2. Solo cuentan agentes activos bajo el promotor.
- *   3. El porcentaje se aplica sobre la PP total acumulada de la promotoría.
+ *   2. Solo cuentan como agentes con compensación aquellos que ganaron el
+ *      Bono Activity Ratio en el mismo periodo evaluado.
+ *   3. Cada agente cuenta UNA sola vez por trimestre: para el siguiente
+ *      trimestre debe volver a ganar Activity Ratio para sumar de nuevo.
+ *   4. El porcentaje se aplica sobre la PP total acumulada de la promotoría.
+ *   5. Los tramos son acumulativos: un conteo mayor al del tramo más alto
+ *      conserva ese tramo (ej. 6 agentes → tramo «5+»).
  *
  * Condiciones leídas de $tier->conditions:
- *   - min_agents  (int)       Mínimo de agentes calificados.
- *   - max_agents  (int|null)  Máximo de agentes calificados (null = sin límite).
+ *   - min_agents  (int)       Mínimo de agentes con compensación.
+ *   - max_agents  (int|null)  Máximo de agentes (null = sin límite).
  */
 class AdditionalAgentsCalculator implements BonusCalculatorInterface
 {
+    /** Llaves del esquema que determina si un agente tiene compensación. */
+    private const ACTIVITY_RATIO_KEYS = ['activity_ratio', 'Activity Ratio'];
+
     /**
      * {@inheritDoc}
      */
@@ -71,74 +81,170 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
         }
 
         // ── 3. Métricas ─────────────────────────────────────────────────
+        $activityRatioScheme = $this->resolveActivityRatioScheme();
+
+        if ($activityRatioScheme === null) {
+            return $this->notAchieved(
+                reason: 'No hay un esquema Activity Ratio activo; no es posible determinar qué agentes tienen compensación.',
+                prerequisiteName: $prerequisiteName,
+            );
+        }
+
+        $qualifiedAgents  = $this->collectQualifiedAgents($user, $activityRatioScheme, $periodStart, $periodEnd);
+        $qualifiedCount   = count($qualifiedAgents);
         $activeAgentCount = $this->countActiveAgents($user, $periodEnd);
-        $totalPP = $this->calculateTotalPP($user, $periodStart, $periodEnd);
+        $totalPP          = $this->calculateTotalPP($user, $periodStart, $periodEnd);
 
-        // ── 4. Evaluar tiers (mejor porcentaje primero) ──────────────────
-        foreach ($tiers as $index => $tier) {
-            $conditions = $tier->conditions ?? [];
+        // ── 4. Resolver tramo por número de agentes con compensación ────
+        $tier = $this->matchTier($tiers, $qualifiedCount);
 
-            $minAgents = (int) ($conditions['min_agents'] ?? 0);
-            $maxAgents = isset($conditions['max_agents'])
-                ? (int) $conditions['max_agents']
-                : PHP_INT_MAX;
+        if ($tier === null) {
+            return $this->notAchieved(
+                reason: "Agentes con compensación (Activity Ratio ganado): {$qualifiedCount} — sin tramo coincidente.",
+                agentCount: $qualifiedCount,
+                totalPp: $totalPP,
+                minRequired: $this->minimumAgentRequirement($tiers),
+                prerequisiteName: $prerequisiteName,
+                activeAgentCount: $activeAgentCount,
+            );
+        }
 
-            if ($activeAgentCount >= $minAgents && $activeAgentCount <= $maxAgents) {
-                $amount = $this->calculateAmount($tier, $user, $totalPP);
+        $minAgents = (int) ($tier->conditions['min_agents'] ?? 0);
+        $tierIndex = $tiers->search(fn (SchemeTier $t) => $t->id === $tier->id);
 
-                return [
-                    'is_achieved' => true,
-                    'amount'      => $amount,
-                    'tier_index'  => $index,
-                    'tier_data'   => $tier->toArray(),
-                    'progress'    => [
-                        'metric_label'   => 'Agentes Calificados',
-                        'current_value'  => $activeAgentCount,
-                        'required_value' => $minAgents,
-                    ],
-                    'progress_breakdown' => [
-                        [
-                            'label'   => $prerequisiteName ?? 'Bono Producción 1er Año de Vida Trimestral',
-                            'current' => $dependencyMet ? 1 : 0,
-                            'target'  => 1,
-                            'met'     => $dependencyMet,
-                            '_isDependency' => true,
-                        ],
-                        [
-                            'label'   => 'Agentes Activos Calificados',
-                            'current' => $activeAgentCount,
-                            'target'  => $minAgents,
-                            'met'     => $activeAgentCount >= $minAgents,
-                        ],
-                        [
-                            'label'   => 'PP Total del Equipo ($)',
-                            'current' => round($totalPP, 2),
-                            'target'  => 0,
-                            'met'     => true,
-                        ],
-                    ],
-                    'details'     => [
-                        'calculator'        => static::class,
-                        'version_name'      => $version->version_name,
-                        'active_agents'     => $activeAgentCount,
-                        'total_pp'          => round($totalPP, 2),
-                        'prerequisite_met'  => $prerequisiteName !== null,
-                        'prerequisite_name' => $prerequisiteName,
-                    ],
+        return [
+            'is_achieved' => true,
+            'amount'      => $this->calculateAmount($tier, $user, $totalPP),
+            'tier_index'  => $tierIndex === false ? null : $tierIndex,
+            'tier_data'   => $tier->toArray(),
+            'progress'    => [
+                'metric_label'   => 'Agentes con compensación',
+                'current_value'  => $qualifiedCount,
+                'required_value' => $minAgents,
+            ],
+            'progress_breakdown' => [
+                $this->dependencyBar($prerequisiteName, $dependencyMet),
+                [
+                    'label'   => 'Agentes con Activity Ratio ganado',
+                    'current' => $qualifiedCount,
+                    'target'  => $minAgents,
+                    'met'     => $qualifiedCount >= $minAgents,
+                ],
+                [
+                    'label'   => 'PP Total del Equipo ($)',
+                    'current' => round($totalPP, 2),
+                    'target'  => 0,
+                    'met'     => true,
+                ],
+            ],
+            'details'     => [
+                'calculator'        => static::class,
+                'version_name'      => $version->version_name,
+                'qualified_agents'  => $qualifiedCount,
+                'active_agents'     => $activeAgentCount,
+                'agents'            => $qualifiedAgents,
+                'total_pp'          => round($totalPP, 2),
+                'prerequisite_met'  => $prerequisiteName !== null,
+                'prerequisite_name' => $prerequisiteName,
+                'metrics'           => ['min_agents' => $qualifiedCount],
+            ],
+        ];
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────
+
+    /**
+     * Obtiene el esquema Activity Ratio activo que define la compensación
+     * de cada agente.
+     */
+    private function resolveActivityRatioScheme(): ?Scheme
+    {
+        return Scheme::where('type', 'bonus')
+            ->where('is_active', true)
+            ->where(function ($query) {
+                $query->whereIn('template_key', self::ACTIVITY_RATIO_KEYS)
+                    ->orWhereIn('name', self::ACTIVITY_RATIO_KEYS);
+            })
+            ->with(['versions.tiers'])
+            ->first();
+    }
+
+    /**
+     * Evalúa el Bono Activity Ratio de cada agente activo del promotor en el
+     * periodo y retorna únicamente a quienes lo ganaron.
+     *
+     * @return array<int, array{agent_id: int, agent_name: string}>
+     */
+    private function collectQualifiedAgents(
+        Promoter $promoter,
+        Scheme $activityRatioScheme,
+        Carbon $start,
+        Carbon $end
+    ): array {
+        $activityRatioScheme->loadMissing(['versions.tiers']);
+        $calculator = new ActivityRatioCalculator();
+        $qualified  = [];
+
+        $agents = $promoter->agents()->activeInPeriod($end->toDateString())->get();
+
+        foreach ($agents as $agent) {
+            try {
+                $result = $calculator->calculate($agent, $activityRatioScheme, $start, $end);
+            } catch (\Throwable $exception) {
+                Log::warning("AdditionalAgents: no se pudo evaluar Activity Ratio del agente {$agent->id}: {$exception->getMessage()}");
+                continue;
+            }
+
+            if ($result['is_achieved'] ?? false) {
+                $qualified[] = [
+                    'agent_id'   => $agent->id,
+                    'agent_name' => $agent->name,
                 ];
             }
         }
 
-        return $this->notAchieved(
-            reason: "Agentes activos: {$activeAgentCount} — sin tier coincidente.",
-            agentCount: $activeAgentCount,
-            totalPp: $totalPP,
-            minRequired: $tiers->min(fn (SchemeTier $t) => (int) ($t->conditions['min_agents'] ?? PHP_INT_MAX)),
-            prerequisiteName: $prerequisiteName,
-        );
+        return $qualified;
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────
+    /**
+     * Selecciona el tramo correspondiente al número de agentes calificados.
+     *
+     * Los tramos son acumulativos: si el conteo supera el rango del tramo con
+     * el mínimo más alto, se otorga ese tramo (ej. 6 agentes → «5+»).
+     */
+    private function matchTier(Collection $tiers, int $agentCount): ?SchemeTier
+    {
+        $ordered = $tiers
+            ->sortBy(fn (SchemeTier $t) => (int) ($t->conditions['min_agents'] ?? 0))
+            ->values();
+
+        foreach ($ordered as $tier) {
+            $conditions = $tier->conditions ?? [];
+            $minAgents  = (int) ($conditions['min_agents'] ?? 0);
+            $maxAgents  = isset($conditions['max_agents']) && $conditions['max_agents'] !== '' && $conditions['max_agents'] !== null
+                ? (int) $conditions['max_agents']
+                : PHP_INT_MAX;
+
+            if ($agentCount >= $minAgents && $agentCount <= $maxAgents) {
+                return $tier;
+            }
+        }
+
+        $topTier = $ordered->last();
+        if ($topTier !== null && $agentCount >= (int) ($topTier->conditions['min_agents'] ?? 0)) {
+            return $topTier;
+        }
+
+        return null;
+    }
+
+    /**
+     * Requisito mínimo de agentes entre todos los tramos (para mostrar la meta).
+     */
+    private function minimumAgentRequirement(Collection $tiers): int
+    {
+        return (int) $tiers->min(fn (SchemeTier $t) => (int) ($t->conditions['min_agents'] ?? PHP_INT_MAX));
+    }
 
     private function countActiveAgents(Promoter $promoter, Carbon $periodEnd): int
     {
@@ -160,6 +266,22 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
             ->sum('premium_amount');
+    }
+
+    /**
+     * Barra del bono prerequisite.
+     *
+     * @return array{label: string, current: int, target: int, met: bool, _isDependency: bool}
+     */
+    private function dependencyBar(?string $prerequisiteName, bool $met): array
+    {
+        return [
+            'label'         => $prerequisiteName ?? 'Bono Producción 1er Año de Vida Trimestral',
+            'current'       => $met ? 1 : 0,
+            'target'        => 1,
+            'met'           => $met,
+            '_isDependency' => true,
+        ];
     }
 
     private function resolveActiveVersion(Scheme $scheme, Carbon $start, Carbon $end): ?SchemeVersion
@@ -196,21 +318,18 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
         float $totalPp = 0.0,
         ?int $minRequired = null,
         ?string $prerequisiteName = null,
+        int $activeAgentCount = 0,
     ): array {
         $breakdown = [];
 
-        // Barra de dependencia (si aplica — el orquestador ya verificó, así que va 1/1)
+        // Barra de dependencia: el orquestador la reemplaza con el estado real
+        // del bono prerequisite cuando no fue alcanzado.
         if ($prerequisiteName !== null) {
-            $breakdown[] = [
-                'label'   => $prerequisiteName,
-                'current' => 1,
-                'target'  => 1,
-                'met'     => true,
-            ];
+            $breakdown[] = $this->dependencyBar($prerequisiteName, true);
         }
 
         $breakdown[] = [
-            'label'   => 'Agentes Activos Calificados',
+            'label'   => 'Agentes con Activity Ratio ganado',
             'current' => $agentCount,
             'target'  => $minRequired ?? 0,
             'met'     => $minRequired !== null ? $agentCount >= $minRequired : false,
@@ -228,12 +347,16 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
             'tier_index'  => null,
             'tier_data'   => null,
             'progress'    => [
-                'metric_label'   => 'Agentes Calificados',
+                'metric_label'   => 'Agentes con compensación',
                 'current_value'  => $agentCount,
-                'required_value' => 0.0,
+                'required_value' => $minRequired ?? 0,
             ],
             'progress_breakdown' => $breakdown,
-            'details' => ['reason' => $reason],
+            'details' => [
+                'reason'        => $reason,
+                'active_agents' => $activeAgentCount,
+                'metrics'       => ['min_agents' => $agentCount],
+            ],
         ];
     }
 }
