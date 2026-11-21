@@ -141,7 +141,25 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
             $amount = $fixedAmount;
         }
 
-        $paymentBars = $this->buildPaymentBars($metrics, $cashTier, $automaticTier, $totalTier, $easiestTierMinPca, $automaticDominant);
+        $paymentInfo = $this->paymentInfo(
+            metrics: $metrics,
+            cashTier: $cashTier,
+            automaticTier: $automaticTier,
+            appliedTier: $appliedTier,
+            automaticRatio: $automaticRatio,
+            automaticDominant: $automaticDominant,
+            amount: $amount,
+        );
+
+        // Barra única: el bono se desbloquea con la PCA TOTAL (efectivo + automático).
+        $pcaBar = [
+            'label'   => 'PCA Total del Trimestre ($)',
+            'current' => round($pca, 2),
+            'target'  => $totalTier !== null
+                ? (float) ($totalTier->conditions['min_pca'] ?? 0)
+                : $easiestTierMinPca,
+            'met'     => $totalTier !== null,
+        ];
 
         if ($appliedTier !== null) {
             $appliedMinPca = (float) ($appliedTier->conditions['min_pca'] ?? 0);
@@ -160,7 +178,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
                     'required_value' => $appliedMinPca,
                 ],
                 'progress_breakdown' => array_merge(
-                    $paymentBars,
+                    [$pcaBar],
                     $productBars,
                     [
                         [
@@ -186,6 +204,8 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
                     'policy_count' => $policyCount,
                     'first_year_end' => $firstYearEnd->toDateString(),
                     'metrics' => ['min_pca' => round($pca, 2)],
+                    // Informativo: composición del pago (efectivo / automático).
+                    'payment_info' => $paymentInfo,
                 ],
             ];
         }
@@ -200,7 +220,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
             requiredPca: $easiestTierMinPca,
             productBreakdown: $productBreakdown,
             policyCount: $policyCount,
-            paymentBars: $paymentBars,
+            paymentInfo: $paymentInfo,
         );
     }
 
@@ -452,7 +472,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         return round($base * ($percentage / 100), 2);
     }
 
-    private function automaticPercentage(SchemeTier $tier): float
+    private function automaticPercentage(?SchemeTier $tier): float
     {
         return (float) ($tier->agent_automatic_percentage ?? 0);
     }
@@ -467,59 +487,42 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
     }
 
     /**
-     * Construye las barras de progreso del conducto de pago.
+     * Resumen informativo del conducto de pago del bono.
      *
-     * @param  array{cash_pca: float, automatic_pca: float, total_pca: float, automatic_ratio: float}  $metrics
-     * @return array<int, array{label: string, current: float, target: float, met: bool}>
+     * No es un requisito: solo describe cuánta PCA se pagó en efectivo, cuánta
+     * en automático y qué porcentaje se aplicó al final.
+     *
+     * @param  array{cash_pca: float, automatic_pca: float, total_pca: float, automatic_count: int, total_count: int}  $metrics
+     * @return array<string, mixed>
      */
-    private function buildPaymentBars(
+    private function paymentInfo(
         array $metrics,
         ?SchemeTier $cashTier,
         ?SchemeTier $automaticTier,
-        ?SchemeTier $totalTier,
-        float $easiestTierMinPca,
+        ?SchemeTier $appliedTier,
+        float $automaticRatio,
         bool $automaticDominant,
+        float $amount,
     ): array {
-        if ($automaticDominant) {
-            $bars = [
-                [
-                    'label' => 'PCA Trimestral ($)',
-                    'current' => $metrics['total_pca'],
-                    'target' => $totalTier !== null
-                        ? (float) ($totalTier->conditions['min_pca'] ?? 0)
-                        : $easiestTierMinPca,
-                    'met' => $totalTier !== null,
-                ],
-            ];
-        } else {
-            $bars = [
-                [
-                    'label' => 'PCA Efectivo ($)',
-                    'current' => $metrics['cash_pca'],
-                    'target' => $cashTier !== null
-                        ? (float) ($cashTier->conditions['min_pca'] ?? 0)
-                        : $easiestTierMinPca,
-                    'met' => $cashTier !== null,
-                ],
-                [
-                    'label' => 'PCA Automático ($)',
-                    'current' => $metrics['automatic_pca'],
-                    'target' => $automaticTier !== null
-                        ? (float) ($automaticTier->conditions['min_pca'] ?? 0)
-                        : $easiestTierMinPca,
-                    'met' => $automaticTier !== null,
-                ],
-            ];
-        }
+        $pca = (float) $metrics['total_pca'];
 
-        $bars[] = [
-            'label' => 'Pólizas en pago automático (%)',
-            'current' => $metrics['automatic_ratio'],
-            'target' => self::AUTOMATIC_DOMINANT_THRESHOLD,
-            'met' => $automaticDominant,
+        $cashPercentage = $automaticDominant ? 0.0 : (float) ($cashTier->agent_percentage ?? 0);
+        $automaticPercentage = $this->automaticPercentage(
+            $automaticDominant ? $appliedTier : ($automaticTier ?? $appliedTier)
+        );
+
+        return [
+            'cash_pca' => round((float) $metrics['cash_pca'], 2),
+            'automatic_pca' => round((float) $metrics['automatic_pca'], 2),
+            'cash_percentage' => $cashPercentage,
+            'automatic_percentage' => $automaticPercentage,
+            'automatic_ratio' => round($automaticRatio, 2),
+            'automatic_policy_count' => (int) $metrics['automatic_count'],
+            'total_policy_count' => (int) $metrics['total_count'],
+            'strategy' => $automaticDominant ? 'automatic' : 'split',
+            // Porcentaje efectivo aplicado sobre la PCA total del trimestre.
+            'applied_percentage' => $pca > 0 ? round(($amount / $pca) * 100, 2) : 0.0,
         ];
-
-        return $bars;
     }
 
     /**
@@ -531,18 +534,16 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         float $requiredPca = 0.0,
         array $productBreakdown = [],
         int $policyCount = 0,
-        array $paymentBars = [],
+        array $paymentInfo = [],
     ): array {
-        $breakdown = $paymentBars;
-
-        if ($breakdown === []) {
-            $breakdown[] = [
-                'label' => 'PCA Trimestral ($)',
+        $breakdown = [
+            [
+                'label' => 'PCA Total del Trimestre ($)',
                 'current' => round($pca, 2),
                 'target' => $requiredPca,
                 'met' => $requiredPca > 0 ? $pca >= $requiredPca : ($pca > 0),
-            ];
-        }
+            ],
+        ];
 
         foreach ($productBreakdown as $item) {
             $breakdown[] = [
@@ -574,6 +575,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
             'details' => [
                 'reason'  => $reason,
                 'metrics' => ['min_pca' => round($pca, 2)],
+                'payment_info' => $paymentInfo,
             ],
         ];
     }

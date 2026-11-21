@@ -834,6 +834,8 @@ class BonusOrchestratorService
                 'next_level'             => $result['next_level'] ?? null,
                 // ── Anticipos mensuales (bonos que los permiten) ──
                 'advances'               => $result['advances'] ?? null,
+                // ── Informativo: composición del pago efectivo / automático ──
+                'payment_info'           => $result['details']['payment_info'] ?? null,
             ];
         }, $results, array_keys($results)));
     }

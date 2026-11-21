@@ -64,10 +64,15 @@ class BonusAdvanceServiceTest extends TestCase
         $result = $this->advances->build($scheme, $agent, Carbon::parse('2026-09-30'));
 
         $this->assertCount(3, $result['months']);
+        $this->assertSame('PCA', $result['metric_label']);
         $this->assertSame([14.0, 20.0, 26.0], array_column($result['months'], 'percentage'));
         $this->assertSame([28_000.0, 52_000.0, 76_000.0], array_column($result['months'], 'amount'));
         $this->assertSame(156_000.0, $result['total']);
         $this->assertFalse($result['has_overrides']);
+
+        // Ventas del mes: PCA vendida en cada mes y acumulada hasta ese mes
+        $this->assertSame([200_000.0, 200_000.0, 200_000.0], array_map('floatval', array_column($result['months'], 'month_metric')));
+        $this->assertSame([200_000.0, 400_000.0, 600_000.0], array_map('floatval', array_column($result['months'], 'metric')));
     }
 
     /**
@@ -135,11 +140,17 @@ class BonusAdvanceServiceTest extends TestCase
         $result = $this->advances->build($scheme, $promoter, Carbon::parse('2026-08-31'));
 
         $this->assertCount(2, $result['months']);
+        $this->assertSame('PP', $result['metric_label']);
         // Julio: $120K × 10% = $12,000
         $this->assertSame(12_000.0, $result['months'][0]['amount']);
         // Agosto: $220K × 14% = $30,800 menos $12,000 = $18,800
         $this->assertSame(18_800.0, $result['months'][1]['amount']);
         $this->assertSame(30_800.0, $result['total']);
+
+        // PP vendida por mes
+        $this->assertSame(120_000.0, (float) $result['months'][0]['month_metric']);
+        $this->assertSame(100_000.0, (float) $result['months'][1]['month_metric']);
+        $this->assertSame(220_000.0, (float) $result['months'][1]['metric']);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

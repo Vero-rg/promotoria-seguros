@@ -443,6 +443,78 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $this->assertEquals(0, $result['tier_index'], 'Debió aplicar el Tier 3.');
     }
 
+    /**
+     * 🟢 El bono se desbloquea con la PCA TOTAL: el conducto de pago
+     *    (efectivo / automático) es solo informativo y no genera barras.
+     *
+     * PCA $200,000 (efectivo) → Tier 2. El breakdown solo muestra la PCA total,
+     * los productos requeridos y el conteo de pólizas.
+     */
+    public function test_payment_channel_is_informational_and_does_not_create_bars(): void
+    {
+        $scheme = $this->createSchemeWithTiers();
+        $agent = Agent::factory()->create(['created_at' => '2026-01-01']);
+        $period = $this->defaultPeriod();
+
+        Policy::factory()->vida()->pagada()->withPremium(200_000)->for($agent)
+            ->create(['issue_date' => '2026-02-01', 'payment_method' => Policy::PAYMENT_METHOD_CASH]);
+        Policy::factory()->primordial()->pagada()->withPremium(40_000)->for($agent)
+            ->create(['issue_date' => '2026-03-01', 'payment_method' => Policy::PAYMENT_METHOD_CASH]);
+
+        $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved']);
+
+        $labels = array_column($result['progress_breakdown'], 'label');
+
+        $this->assertContains('PCA Total del Trimestre ($)', $labels);
+        $this->assertNotContains('PCA Efectivo ($)', $labels, 'El efectivo no debe ser un requisito.');
+        $this->assertNotContains('PCA Automático ($)', $labels, 'El automático no debe ser un requisito.');
+        $this->assertNotContains('Pólizas en pago automático (%)', $labels, 'El % automático no debe ser un requisito.');
+
+        $pcaBar = collect($result['progress_breakdown'])->firstWhere('label', 'PCA Total del Trimestre ($)');
+        $this->assertEquals(237_300.0, (float) $pcaBar['current']);
+        $this->assertTrue($pcaBar['met']);
+
+        // Info informativa del pago
+        $info = $result['details']['payment_info'];
+        $this->assertEquals('split', $info['strategy']);
+        $this->assertEquals(237_300.0, $info['cash_pca']);
+        $this->assertEquals(0.0, $info['automatic_pca']);
+        $this->assertEquals(0.0, $info['automatic_ratio']);
+        $this->assertEquals(14.0, $info['cash_percentage']);
+        $this->assertEquals(14.0, $info['applied_percentage']);
+    }
+
+    /**
+     * 🟢 Cuando domina el pago automático, el porcentaje aplicado es el
+     *    automático del tramo alcanzado.
+     */
+    public function test_payment_info_reports_applied_automatic_percentage(): void
+    {
+        $scheme = $this->createSchemeWithTiers();
+        $agent = Agent::factory()->create(['created_at' => '2026-01-01']);
+        $period = $this->defaultPeriod();
+
+        Policy::factory()->vida()->pagada()->withPremium(300_000)->for($agent)
+            ->create(['issue_date' => '2026-02-01', 'payment_method' => Policy::PAYMENT_METHOD_AUTOMATIC]);
+        Policy::factory()->primordial()->pagada()->withPremium(40_000)->for($agent)
+            ->create(['issue_date' => '2026-03-01', 'payment_method' => Policy::PAYMENT_METHOD_AUTOMATIC]);
+
+        $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved']);
+
+        $info = $result['details']['payment_info'];
+        $this->assertEquals('automatic', $info['strategy']);
+        $this->assertEquals(100.0, $info['automatic_ratio']);
+        $this->assertEquals(2, $info['total_policy_count']);
+        $this->assertEquals(2, $info['automatic_policy_count']);
+        $this->assertEquals(0.0, $info['cash_percentage']);
+        $this->assertGreaterThan(0, $info['automatic_percentage']);
+        $this->assertEquals(20.0, $info['applied_percentage']);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // HELPERS DE CONSTRUCCIÓN DE DATOS
     // ═══════════════════════════════════════════════════════════════════════
