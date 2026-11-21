@@ -70,8 +70,10 @@ class BonusAdvanceService
             ->pluck('amount', 'period_month');
 
         $config = $scheme->anticipos_config ?? [];
+        $metricLabel = $this->metricLabel($scheme);
         $paidSoFar = 0.0;
         $calculatedTotal = 0.0;
+        $previousMetric = 0.0;
         $rows = [];
 
         foreach ($months as $index => $month) {
@@ -98,8 +100,13 @@ class BonusAdvanceService
                 'below_minimum'      => $belowMinimum,
                 'unlocked'           => (bool) ($evaluation['is_achieved'] ?? false),
                 'percentage'         => $this->reachedPercentage($scheme, $evaluation),
+                // Ventas del mes (PCA del agente o PP del equipo) para comparar el %.
+                'metric_label'       => $metricLabel,
+                'metric'             => round($metric, 2),
+                'month_metric'       => round($metric - $previousMetric, 2),
             ];
 
+            $previousMetric = $metric;
             $paidSoFar = round($paidSoFar + $amount, 2);
             $calculatedTotal = round($calculatedTotal + $calculated, 2);
         }
@@ -109,6 +116,7 @@ class BonusAdvanceService
             'total'            => round(array_sum(array_column($rows, 'amount')), 2),
             'calculated_total' => $calculatedTotal,
             'has_overrides'    => $overrides->isNotEmpty(),
+            'metric_label'     => $metricLabel,
         ];
     }
 
@@ -152,6 +160,14 @@ class BonusAdvanceService
         }
 
         return $months;
+    }
+
+    /**
+     * Etiqueta de la métrica vendida del mes (PCA del agente o PP del equipo).
+     */
+    private function metricLabel(Scheme $scheme): string
+    {
+        return $scheme->target === 'promoter' ? 'PP' : 'PCA';
     }
 
     /**

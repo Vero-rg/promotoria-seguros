@@ -21,12 +21,14 @@
  *       matrix: Object (matriz de compensación para consulta),
  *       earned: { percentage, fixed_amount, amount, note },
  *       next_level: { label, requirement, percentage, gaps[] }
- *       advances: { months[], total, calculated_total } (bonos con anticipos)
+ *       advances: { months[], total, calculated_total } (bonos con anticipos),
+ *       payment_info: { cash_pca, automatic_pca, cash_percentage, automatic_percentage, automatic_ratio, applied_percentage, strategy }
  *   }
  */
 import { ref } from 'vue';
 import BonusAdvancesTable from './BonusAdvancesTable.vue';
 import BonusMatrixModal from './BonusMatrixModal.vue';
+import BonusPaymentInfo from './BonusPaymentInfo.vue';
 import MonthlyBonusBreakdown from './MonthlyBonusBreakdown.vue';
 import { CheckCircle2, Lock, Info, Table2 } from 'lucide-vue-next';
 
@@ -305,6 +307,9 @@ const hasEffectiveConditions = (bonus) => {
                 <!-- Desglose mes a mes (bonos mensuales) -->
                 <MonthlyBonusBreakdown v-if="hasMonthlyBreakdown(bonus)" :months="bonus.monthly_breakdown" />
 
+                <!-- Informativo: composición del pago (efectivo / automático) -->
+                <BonusPaymentInfo v-if="bonus.payment_info" :info="bonus.payment_info" />
+
                 <!-- Anticipos mensuales (bonos de 1er año de vida) -->
                 <BonusAdvancesTable
                     v-if="bonus.advances?.months?.length"
@@ -413,6 +418,9 @@ const hasEffectiveConditions = (bonus) => {
 
                 <!-- Desglose mes a mes (bonos mensuales) -->
                 <MonthlyBonusBreakdown v-if="hasMonthlyBreakdown(bonus)" :months="bonus.monthly_breakdown" />
+
+                <!-- Informativo: composición del pago (efectivo / automático) -->
+                <BonusPaymentInfo v-if="bonus.payment_info" :info="bonus.payment_info" />
 
                 <!-- Anticipos mensuales (bonos de 1er año de vida) -->
                 <BonusAdvancesTable

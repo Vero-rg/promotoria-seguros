@@ -69,9 +69,6 @@ class BonusCompensationMatrix
             $percentage = ($details['payment_strategy'] ?? 'split') === 'automatic'
                 ? (float) ($details['automatic_percentage'] ?? 0)
                 : (float) $details['cash_percentage'];
-
-            $note = 'Efectivo '.$this->percent((float) $details['cash_percentage'])
-                .' · Automático '.$this->percent((float) ($details['automatic_percentage'] ?? 0));
         }
 
         if (!empty($details['best_month'])) {

@@ -15,6 +15,8 @@ const props = defineProps({
     schemeId: { type: Number, required: true },
     userType: { type: String, required: true },
     userId: { type: Number, required: true },
+    /** Habilita la edición manual del monto del anticipo. */
+    editable: { type: Boolean, default: false },
 });
 
 const formatCurrency = (value) => {
@@ -53,6 +55,8 @@ const syncRows = () => {
 watch(() => props.advances, syncRows, { immediate: true, deep: true });
 
 const startEdit = (row) => {
+    if (!props.editable) return;
+
     row.draft = String(row.amount ?? 0);
     row.editing = true;
 };
@@ -110,7 +114,7 @@ const save = (row) => {
         <div class="divide-y divide-amber-100/70">
             <div v-for="row in rows" :key="row.month" class="space-y-1 px-3 py-2">
                 <div class="flex items-center justify-between gap-2">
-                    <div class="flex min-w-0 items-center gap-1.5">
+                    <div class="flex min-w-0 flex-wrap items-center gap-1.5">
                         <span class="truncate text-xs font-medium text-gray-800">{{ row.label }}</span>
                         <span
                             v-if="row.percentage !== null && row.percentage !== undefined"
@@ -118,6 +122,13 @@ const save = (row) => {
                             :class="row.unlocked ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
                         >
                             {{ row.percentage }}%
+                        </span>
+                        <!-- Ventas del mes (PCA del agente / PP del equipo) -->
+                        <span
+                            class="inline-flex items-center rounded border border-amber-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-600"
+                            :title="`${row.metric_label} vendida en ${row.label}`"
+                        >
+                            {{ row.metric_label }} {{ formatCurrency(row.month_metric) }}
                         </span>
                     </div>
 
@@ -146,8 +157,10 @@ const save = (row) => {
                             <Check v-if="savedMonth === row.month" class="h-3.5 w-3.5 text-green-600" />
                             <button
                                 type="button"
-                                class="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                                title="Editar anticipo"
+                                class="rounded-md p-1 transition-colors"
+                                :class="editable ? 'text-gray-400 hover:bg-gray-100 hover:text-gray-700' : 'cursor-not-allowed text-gray-300'"
+                                :disabled="!editable"
+                                :title="editable ? 'Editar anticipo' : 'La edición del anticipo está deshabilitada por ahora'"
                                 @click="startEdit(row)"
                             >
                                 <Pencil class="h-3.5 w-3.5" />

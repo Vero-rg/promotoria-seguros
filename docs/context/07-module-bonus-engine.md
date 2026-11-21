@@ -103,8 +103,14 @@ Only the first-year production bonuses may pay **monthly advances** (`requires_a
 - Endpoint: `POST /bonus-advances` → `BonusAdvanceController@store`
   (`SaveBonusAdvanceRequest`). Valid requests redirect back so Inertia refreshes props.
 - Payload: `advances = { months: [{ month, label, cumulative_amount, previous_total,
-  calculated, amount, is_override, minimum, below_minimum, unlocked, percentage }],
-  total, calculated_total, has_overrides }`.
+  calculated, amount, is_override, minimum, below_minimum, unlocked, percentage,
+  metric_label, metric, month_metric }], total, calculated_total, has_overrides,
+  metric_label }`.
+  `month_metric` es lo vendido en ese mes (`PCA` del agente o `PP` del equipo) y `metric`
+  el acumulado hasta ese mes; el panel los muestra junto al porcentaje para comparar.
+- La edición manual del monto está deshabilitada por ahora: `BonusAdvancesTable` recibe
+  `editable` (por defecto `false`) y el lápiz queda inerte. Los montos guardados en
+  `bonus_advances` siguen alimentando el cálculo.
 
 ### Period Expansion
 The orchestrator "expands" the period based on scheme frequency:
@@ -159,7 +165,14 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 - Evaluates tiers by `min_pca` descending. Each portion is evaluated on its own: `cash_pca × cash%` + `automatic_pca × automatic%`, where each percentage comes from the tier that portion reaches.
 - **60% rule:** if at least 60% of the quarter's paid policies are automatic, the whole PCA is paid with the automatic percentage (tier chosen by total PCA).
 - Bonus is paid ONLY if BOTH PCA and ALL product requirements are met.
+- **The unlock requirement is the TOTAL PCA** (`cash_pca + automatic_pca`); the payment channel is
+  not a requirement. `progress_breakdown` exposes a single «PCA Total del Trimestre ($)» bar plus
+  the product bars and the policy count.
 - Payout details are exposed in `details`: `cash_pca`, `automatic_pca`, `cash_amount`, `automatic_amount`, `automatic_ratio`, `payment_strategy` (`split` | `automatic`).
+- `details.payment_info` carries the informational breakdown rendered before the advances block:
+  `cash_pca`, `automatic_pca`, `cash_percentage`, `automatic_percentage`, `automatic_ratio`,
+  `automatic_policy_count`, `total_policy_count`, `strategy` and `applied_percentage`
+  (effective percentage over total PCA).
 
 **Tier conditions:** `{"min_pca": 25000}`
 
