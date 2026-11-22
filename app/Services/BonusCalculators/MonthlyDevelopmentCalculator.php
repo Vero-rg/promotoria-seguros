@@ -229,6 +229,9 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                 'current_quarter'        => $currentQuarter ?? null,
                 'matched_agents'         => $matchedAgents,
                 'total_agents_evaluated' => $agents->count(),
+                'metrics'                => [
+                    'min_pca' => (float) ($matchedAgents[0]['pca'] ?? 0),
+                ],
             ],
         ];
     }
@@ -309,7 +312,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
     /**
      * Calcula el PCA individual de un agente en el periodo.
      *
-     * PCA = PNA − $1,500 por cada póliza (mínimo $0 por póliza).
+     * PCA = PNA − $1,350 por cada póliza (mínimo $0 por póliza).
      * Solo se consideran pólizas con estatus Pagada.
      */
     private function calculateAgentPca(Agent $agent, Carbon $start, Carbon $end): float
@@ -319,7 +322,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
             ->where('status', Policy::STATUS_PAGADA)
             ->get();
 
-        return $policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1500));
+        return $policies->sum(fn($p) => max(0, (float) $p->premium_amount - Policy::PCA_DEDUCTION));
     }
 
     /**
@@ -410,6 +413,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                 'reason'                => $reason,
                 'collection_efficiency' => $collectionEfficiency,
                 'quarterly_recruits'    => $quarterlyRecruits,
+                'metrics'               => ['min_pca' => 0.0],
             ],
         ];
     }

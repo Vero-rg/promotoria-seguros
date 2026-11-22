@@ -2,14 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreAgentRequest;
+use App\Http\Requests\UpdateAgentRequest;
 use App\Models\Agent;
 use App\Models\Promoter;
+use App\Services\BonusOrchestratorService;
+use App\Services\CommissionBreakdownService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
 class AgentController extends Controller
 {
+    public function __construct(private CommissionBreakdownService $commissions) {}
+
     // El index no es necesario aquí, ya que el directorio maneja la vista general
     public function index()
     {
@@ -22,21 +29,16 @@ class AgentController extends Controller
         return redirect()->route('promoters.create');
     }
 
-    public function store(Request $request)
+    public function store(StoreAgentRequest $request)
     {
-        $validated = $request->validate([
-            'promoter_id' => 'nullable|exists:promoters,id',
-            'name' => 'required|string|max:255',
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'is_active' => 'boolean',
-        ]);
+        $validated = $request->validated();
 
         if ($request->hasFile('photo')) {
             $validated['photo'] = $request->file('photo')->store('photos', 'public');
         }
 
         Agent::create($validated);
-        
+
         return redirect()->route('directorio')->with('success', 'Agente registrado correctamente.');
     }
 
@@ -55,53 +57,24 @@ class AgentController extends Controller
         // 1. Cantidad de pólizas vendidas
         $policiesCount = $policies->count();
 
-        // 2. Comisiones generadas con desglose secuencial ISR → facturación
-        $productCommissionMap = app(\App\Http\Controllers\PolicyController::class)->getProductCommissionMap();
+        // 2. Comisiones generadas con desglose secuencial ISR → cedular → facturación
+        $commissionBreakdown = $this->commissions->summarize($policies, CommissionBreakdownService::ROLE_AGENT);
 
-        $agentGross   = 0;
-        $agentIsr     = 0;
-        $agentBilling = 0;
-        $agentNet     = 0;
-
-        foreach ($policies as $policy) {
-            // Solo pólizas Pagadas generan comisión
-            if ($policy->status !== \App\Models\Policy::STATUS_PAGADA) continue;
-
-            $map = $productCommissionMap[$policy->product_type] ?? null;
-            if ($map) {
-                $gross = (float) $policy->premium_amount * ($map['agent_percentage'] / 100);
-            } else {
-                $gross = (float) $policy->commission_amount;
-            }
-
-            // Per-policy sequential ISR → billing (matching Policy::agentNetAmount)
-            $isrPct   = (float) ($policy->isr_retention ?? 0);
-            $billPct  = (float) ($policy->billing_retention ?? 0);
-            $isr      = $gross * ($isrPct / 100);
-            $afterIsr = $gross - $isr;
-            $billing  = $afterIsr * ($billPct / 100);
-            $net      = $afterIsr - $billing;
-
-            $agentGross   += $gross;
-            $agentIsr     += $isr;
-            $agentBilling += $billing;
-            $agentNet     += $net;
-        }
-
-        $commissionBreakdown = [
-            'gross'   => round($agentGross, 2),
-            'isr'     => round($agentIsr, 2),
-            'billing' => round($agentBilling, 2),
-            'net'     => round($agentNet, 2),
-        ];
+        // Comisión bruta por póliza para el historial (usa el esquema activo si la póliza no tiene porcentaje)
+        $policies->each(function ($policy) {
+            $policy->setAttribute(
+                'resolved_commission_amount',
+                $this->commissions->grossCommission($policy, CommissionBreakdownService::ROLE_AGENT)
+            );
+        });
 
         // 3. Bonos: Usar el Orquestador de Bonos (Strategy Pattern)
         //    El orquestador expande automáticamente el periodo para bonos
         //    trimestrales/anuales según la frecuencia de cada esquema.
-        $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
+        $bonusOrchestrator = app(BonusOrchestratorService::class);
 
-        $visualStart = \Carbon\Carbon::parse($startDate);
-        $visualEnd   = \Carbon\Carbon::parse($endDate);
+        $visualStart = Carbon::parse($startDate);
+        $visualEnd = Carbon::parse($endDate);
 
         $orchestratorResult = $bonusOrchestrator->calculateAll(
             user: $agent,
@@ -109,6 +82,7 @@ class AgentController extends Controller
             periodEnd: $visualEnd,
             visualRangeStart: $visualStart,
             visualRangeEnd: $visualEnd,
+            monthlyView: true,
         );
 
         $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
@@ -133,18 +107,13 @@ class AgentController extends Controller
         return Inertia::render('Directory/Edit', [
             'entity' => $agent,
             'type' => 'agent',
-            'promoters' => Promoter::orderBy('name')->get()
+            'promoters' => Promoter::orderBy('name')->get(),
         ]);
     }
 
-    public function update(Request $request, Agent $agent)
+    public function update(UpdateAgentRequest $request, Agent $agent)
     {
-        $validated = $request->validate([
-            'promoter_id' => 'nullable|exists:promoters,id',
-            'name' => 'sometimes|required|string|max:255',
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'is_active' => 'boolean',
-        ]);
+        $validated = $request->validated();
 
         if ($request->hasFile('photo')) {
             // Delete old photo if exists
@@ -159,19 +128,21 @@ class AgentController extends Controller
             if ($validated['is_active'] && $agent->deactivated_at !== null) {
                 // Se reactiva → limpiar fecha de baja
                 $validated['deactivated_at'] = null;
-            } elseif (!$validated['is_active'] && $agent->is_active) {
+            } elseif (! $validated['is_active'] && $agent->is_active) {
                 // Se da de baja → registrar fecha
                 $validated['deactivated_at'] = now();
             }
         }
 
         $agent->update($validated);
+
         return redirect()->route('directorio')->with('success', 'Agente actualizado correctamente.');
     }
 
     public function destroy(Agent $agent)
     {
         $agent->delete();
+
         return redirect()->route('directorio')->with('success', 'Agente eliminado correctamente.');
     }
 }

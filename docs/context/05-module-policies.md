@@ -11,6 +11,10 @@ Full CRUD for insurance policies (pólizas). Each policy represents a sale made 
 | `app/Http/Controllers/PolicyController.php` | Full CRUD + status update endpoint + commission map resolver |
 | `app/Http/Requests/StorePolicyRequest.php` | Validation rules for creating policies (Spanish messages) |
 | `app/Http/Requests/UpdatePolicyRequest.php` | Validation rules for updating policies (Spanish messages, unique exclusion) |
+| `app/Http/Requests/ImportPoliciesRequest.php` | Validation for the Excel/CSV import file |
+| `app/Services/PolicyImportService.php` | Parses the spreadsheet, validates each row and creates the policies |
+| `app/Services/ProductCommissionService.php` | Resolves product → commission % from the active commission schemes |
+| `app/Http/Controllers/PolicyImportController.php` | Import endpoint + Excel template download |
 | `resources/js/Pages/Policies/Partials/PolicyForm.vue` | Shared form component — client-side commission auto-calc + financial summary preview |
 | `resources/js/Pages/Policies/Index.vue` | Policy list view |
 | `resources/js/Pages/Policies/Create.vue` | Create policy form (wraps `PolicyForm.vue`) |
@@ -33,55 +37,71 @@ Full CRUD for insurance policies (pólizas). Each policy represents a sale made 
 | PUT/PATCH | `/policies/{policy}` | `PolicyController@update` | `policies.update` |
 | DELETE | `/policies/{policy}` | `PolicyController@destroy` | `policies.destroy` |
 | PATCH | `/policies/{policy}/status` | `PolicyController@updateStatus` | `policies.status` |
+| GET | `/policies/import/template` | `PolicyImportController@template` | `policies.import.template` |
+| POST | `/policies/import` | `PolicyImportController@import` | `policies.import` |
 
 ### Source: Routes (from `routes/web.php`)
 
 ```php
+Route::get('policies/import/template', [PolicyImportController::class, 'template'])->name('policies.import.template');
+Route::post('policies/import', [PolicyImportController::class, 'import'])->name('policies.import');
 Route::resource('policies', PolicyController::class);
 Route::patch('policies/{policy}/status', [PolicyController::class, 'updateStatus'])->name('policies.status');
 ```
 
 ---
 
-## ⚠️ CRITICAL: Exact Commission / ISR / Billing Formulas
+## ⚠️ CRITICAL: Exact Commission / ISR / Cedular / Billing Formulas
 
 This is the ground truth for all money calculations in the system. These formulas are implemented in `Policy.php` and used by Dashboard, Promoter detail, and anywhere net amounts are computed.
+
+### PNA and PCA
+
+- **PNA** (`premium_amount`) — gross premium paid by the client.
+- **PCA** (`pcaAmount()`) — `max(0, PNA − 1_350)`. The fixed `Policy::PCA_DEDUCTION` ($1,350) is subtracted per policy.
+- Agent and promoter commissions are calculated **on the PCA**, not on the PNA: `commission_amount = PCA × commission_percentage`.
 
 ### Agent Net Commission (`agentNetAmount()`)
 
 ```
 Step 1: ISR deduction = commission_amount × (isr_retention / 100)
 Step 2: After-ISR amount = commission_amount - ISR deduction
-Step 3: Billing deduction = After-ISR amount × (billing_retention / 100)
-Step 4: Net = After-ISR amount - Billing deduction
+Step 3: Cedular deduction = After-ISR amount × (cedular_tax / 100)
+Step 4: After-cedular amount = After-ISR amount - Cedular deduction
+Step 5: Billing deduction = After-cedular amount × (billing_retention / 100)
+Step 6: Net = After-cedular amount - Billing deduction
 ```
 
-ISR and billing are applied **sequentially**: ISR is deducted first, then billing is calculated from the amount **after ISR** (not from the original `commission_amount`). Both percentages use the DB-stored values from `isr_retention` and `billing_retention` columns. The calculation ONLY runs if `status === 'Pagada'`. Otherwise returns `0.0`.
+Deductions are applied **sequentially**: ISR first, then impuesto cedular on the amount after ISR, then billing on the amount after cedular. Percentages use the DB-stored values from `isr_retention`, `cedular_tax` and `billing_retention`. The calculation ONLY runs if `status === 'Pagada'`. Otherwise returns `0.0`.
 
-**Example:** `commission_amount = 50,040`, ISR = 10%, billing = 5%
+**Example:** `commission_amount = 50,040`, ISR = 10%, cedular = 5%, billing = 5%
 - ISR = 50,040 × 0.10 = 5,004.00
 - After ISR = 50,040 − 5,004 = 45,036.00
-- Billing = 45,036 × 0.05 = 2,251.80
-- Net = 45,036 − 2,251.80 = **42,784.20**
+- Cedular = 45,036 × 0.05 = 2,251.80
+- After cedular = 45,036 − 2,251.80 = 42,784.20
+- Billing = 42,784.20 × 0.05 = 2,139.21
+- Net = 42,784.20 − 2,139.21 = **40,644.99**
 
 ### Promoter Net Commission (`promoterNetAmount()`)
 
 ```
 Step 1: ISR deduction = promoter_commission_amount × (isr_retention / 100)
 Step 2: After-ISR amount = promoter_commission_amount - ISR deduction
-Step 3: Billing deduction = After-ISR amount × (billing_retention / 100)
-Step 4: Net = After-ISR amount - Billing deduction
+Step 3: Cedular deduction = After-ISR amount × (cedular_tax / 100)
+Step 4: After-cedular amount = After-ISR amount - Cedular deduction
+Step 5: Billing deduction = After-cedular amount × (billing_retention / 100)
+Step 6: Net = After-cedular amount - Billing deduction
 ```
 
 Same sequential structure but uses `promoter_commission_amount` as the base.
 
-### Dashboard Net Income (`netAmount()`)
+### Dashboard Net Income
 
 ```
-Net Amount = agentNetAmount() + promoterNetAmount()
+Net Income = PNA − (agent net commissions + promoter net commissions)
 ```
 
-Returns the sum of agent net commission and promoter net commission after both have ISR and billing deducted sequentially. Used by the Dashboard KPI. Does NOT involve `premium_amount` directly.
+`CommissionBreakdownService` resolves each `Pagada` policy's gross commission (`PCA × percentage`, falling back to the active commission scheme when the policy has no percentage) and applies ISR → impuesto cedular → facturación sequentially. `Policy::netAmount()` still returns agent + promoter net commission for a single policy, but the Dashboard KPI subtracts that total from the period PNA.
 
 ---
 
@@ -90,19 +110,21 @@ Returns the sum of agent net commission and promoter net commission after both h
 ## Policy Model — Key Fields
 
 ### Financial Fields
-- `premium_amount` — Total premium paid by client (prima total)
-- `commission_percentage` — Agent commission % (from scheme config)
+- `premium_amount` — PNA: gross premium paid by client
+- `commission_percentage` — Agent commission % (from scheme config), applied to the PCA
 - `commission_amount` — Agent commission in MXN
-- `promoter_commission_percentage` — Promoter override %
+- `promoter_commission_percentage` — Promoter override %, applied to the PCA
 - `promoter_commission_amount` — Promoter override in MXN
-- `isr_retention` — ISR tax retention % (default: 10%)
-- `billing_retention` — Factoring/billing cost % (default: 5%)
+- `isr_retention` — ISR tax retention % (required on create/edit)
+- `cedular_tax` — Impuesto cedular % (optional; defaults to 0, or 5 when the selected agent has `cedular_tax_enabled`)
+- `billing_retention` — Factoring/billing cost % (no default; required when creating/editing)
 
 ### Identification
-- `policy_number` — Unique external insurance policy number
+- `policy_number` — Unique external insurance policy number (digits only)
 - `client_name` — Name of the insured person (optional)
 - `issue_date` — Date the policy was issued
-- `product_type` — One of: `METLIFE`, `PERFECTLIFE`, `PRIMORDIAL`
+- `product_type` — One of: `METALIFE`, `PERFECTLIFE`, `PRIMORDIAL`
+- `payment_method` — Payment channel: `Efectivo` or `Automático` (required on create/edit; the column is NOT NULL and defaults to `Automático`; legacy rows were backfilled to `Automático`; imports default to `Efectivo` when the cell is empty)
 - `agent_id` — Foreign key to the selling agent
 
 ### Status Field
@@ -150,6 +172,9 @@ class Policy extends Model
         self::STATUS_PAGADA => 'blue',
     ];
 
+    /** Deducción fija sobre el PNA para obtener el PCA (por póliza). */
+    public const PCA_DEDUCTION = 1350.00;
+
     protected $fillable = [
         'agent_id',
         'policy_number',
@@ -161,9 +186,11 @@ class Policy extends Model
         'promoter_commission_percentage',
         'promoter_commission_amount',
         'isr_retention',
+        'cedular_tax',
         'billing_retention',
         'status',
         'product_type',
+        'payment_method',
     ];
 
     protected $casts = [
@@ -172,6 +199,7 @@ class Policy extends Model
         'commission_amount' => 'decimal:2',
         'promoter_commission_amount' => 'decimal:2',
         'isr_retention' => 'decimal:2',
+        'cedular_tax' => 'decimal:2',
         'billing_retention' => 'decimal:2',
     ];
 
@@ -214,8 +242,18 @@ class Policy extends Model
     }
 
     /**
+     * Prima Computable Acumulada: PNA menos la deducción fija por póliza.
+     * Es la base para calcular comisiones y bonos.
+     */
+    public function pcaAmount(): float
+    {
+        return round(max(0, (float) $this->premium_amount - self::PCA_DEDUCTION), 2);
+    }
+
+    /**
      * Calcula el monto neto de la comisión del agente después de
-     * deducciones por ISR y costo de facturación sobre la comisión.
+     * deducciones por ISR, impuesto cedular y costo de facturación,
+     * aplicadas secuencialmente sobre la comisión.
      * Solo aplica si la póliza está en estatus Pagada; de lo contrario retorna 0.
      */
     public function agentNetAmount(): float
@@ -224,20 +262,13 @@ class Policy extends Model
             return 0.0;
         }
 
-        $agentComm = (float) $this->commission_amount;
-        $isrPct    = (float) ($this->isr_retention ?? 0);
-        $billPct   = (float) ($this->billing_retention ?? 0);
-
-        $isr           = $agentComm * ($isrPct / 100);
-        $afterIsr      = $agentComm - $isr;
-        $billing       = $afterIsr * ($billPct / 100);
-
-        return round($afterIsr - $billing, 2);
+        return $this->netCommissionAmount((float) $this->commission_amount);
     }
 
     /**
      * Calcula el monto neto de la comisión del promotor después de
-     * deducciones por ISR y costo de facturación sobre la comisión.
+     * deducciones por ISR, impuesto cedular y costo de facturación,
+     * aplicadas secuencialmente sobre la comisión.
      * Solo aplica si la póliza está en estatus Pagada; de lo contrario retorna 0.
      */
     public function promoterNetAmount(): float
@@ -246,15 +277,7 @@ class Policy extends Model
             return 0.0;
         }
 
-        $promoterComm = (float) $this->promoter_commission_amount;
-        $isrPct       = (float) ($this->isr_retention ?? 0);
-        $billPct      = (float) ($this->billing_retention ?? 0);
-
-        $isr           = $promoterComm * ($isrPct / 100);
-        $afterIsr      = $promoterComm - $isr;
-        $billing       = $afterIsr * ($billPct / 100);
-
-        return round($afterIsr - $billing, 2);
+        return $this->netCommissionAmount((float) $this->promoter_commission_amount);
     }
 
     /**
@@ -270,6 +293,22 @@ class Policy extends Model
         }
 
         return round($this->agentNetAmount() + $this->promoterNetAmount(), 2);
+    }
+
+    /**
+     * Deducciones secuenciales sobre una comisión: ISR → impuesto cedular → facturación.
+     */
+    private function netCommissionAmount(float $commissionAmount): float
+    {
+        $isrPct      = (float) ($this->isr_retention ?? 0);
+        $cedularPct  = (float) ($this->cedular_tax ?? 0);
+        $billingPct  = (float) ($this->billing_retention ?? 0);
+
+        $afterIsr     = $commissionAmount - ($commissionAmount * ($isrPct / 100));
+        $afterCedular = $afterIsr - ($afterIsr * ($cedularPct / 100));
+        $afterBilling = $afterCedular - ($afterCedular * ($billingPct / 100));
+
+        return round($afterBilling, 2);
     }
 }
 ```
@@ -290,7 +329,7 @@ This method, defined in `PolicyController`, resolves the current commission perc
 ### Result Example:
 ```php
 [
-    'METLIFE'     => ['agent_percentage' => 35.0, 'promoter_percentage' => 5.0],
+    'METALIFE'    => ['agent_percentage' => 35.0, 'promoter_percentage' => 5.0],
     'PERFECTLIFE' => ['agent_percentage' => 30.0, 'promoter_percentage' => 5.0],
     'PRIMORDIAL'  => ['agent_percentage' => 20.0, 'promoter_percentage' => 3.0],
 ]
@@ -440,10 +479,12 @@ class StorePolicyRequest extends FormRequest
             'commission_amount' => 'nullable|numeric',
             'promoter_commission_percentage' => 'nullable|numeric',
             'promoter_commission_amount' => 'nullable|numeric',
-            'isr_retention' => 'nullable|numeric',
-            'billing_retention' => 'nullable|numeric',
+            'isr_retention' => 'required|numeric|min:0|max:100',
+            'cedular_tax' => 'nullable|numeric|min:0|max:100',
+            'billing_retention' => 'required|numeric|min:0|max:100',
             'status' => 'nullable|string',
             'product_type' => 'nullable|string',
+            'payment_method' => ['required', Rule::in(Policy::PAYMENT_METHODS)],
         ];
     }
 
@@ -465,7 +506,7 @@ class StorePolicyRequest extends FormRequest
             'agent_id' => 'agente',
             'policy_number' => 'número de póliza',
             'issue_date' => 'fecha de emisión',
-            'premium_amount' => 'prima total',
+            'premium_amount' => 'PNA',
             'commission_percentage' => 'porcentaje de comisión (agente)',
             'commission_amount' => 'monto de comisión (agente)',
             'promoter_commission_percentage' => 'porcentaje de comisión (promotor)',
@@ -509,10 +550,12 @@ class UpdatePolicyRequest extends FormRequest
             'commission_amount' => 'nullable|numeric',
             'promoter_commission_percentage' => 'nullable|numeric',
             'promoter_commission_amount' => 'nullable|numeric',
-            'isr_retention' => 'nullable|numeric',
-            'billing_retention' => 'nullable|numeric',
+            'isr_retention' => 'required|numeric|min:0|max:100',
+            'cedular_tax' => 'nullable|numeric|min:0|max:100',
+            'billing_retention' => 'required|numeric|min:0|max:100',
             'status' => 'sometimes|string',
             'product_type' => 'nullable|string',
+            'payment_method' => ['required', Rule::in(Policy::PAYMENT_METHODS)],
         ];
     }
 
@@ -534,21 +577,23 @@ class UpdatePolicyRequest extends FormRequest
             'agent_id' => 'agente',
             'policy_number' => 'número de póliza',
             'issue_date' => 'fecha de emisión',
-            'premium_amount' => 'prima total',
+            'premium_amount' => 'PNA',
             'commission_percentage' => 'porcentaje de comisión (agente)',
             'commission_amount' => 'monto de comisión (agente)',
             'promoter_commission_percentage' => 'porcentaje de comisión (promotor)',
             'promoter_commission_amount' => 'monto de comisión (promotor)',
             'isr_retention' => 'retención de ISR',
+            'cedular_tax' => 'impuesto cedular',
             'billing_retention' => 'costo de facturación',
             'status' => 'estatus',
             'product_type' => 'tipo de producto',
+            'payment_method' => 'conducto de pago',
         ];
     }
 }
 ```
 
-> **Frontend/backend duplication note:** Commission amounts (`commission_amount`, `promoter_commission_amount`) are calculated **client-side** in the Vue Create/Edit forms as `premium_amount × percentage / 100`. The backend Controller does NOT independently recompute them — it simply saves whatever validated values the frontend submitted (validation is now handled by `StorePolicyRequest` / `UpdatePolicyRequest` Form Request classes). There is no model observer or `prepareForValidation` hook for recomputation. The frontend is the sole source of truth for what gets persisted.
+> **Frontend/backend duplication note:** Commission amounts (`commission_amount`, `promoter_commission_amount`) are calculated **client-side** in the Vue Create/Edit forms as `PCA × percentage / 100` (PCA = PNA − $1,350). The backend Controller does NOT independently recompute them — it simply saves whatever validated values the frontend submitted (validation is now handled by `StorePolicyRequest` / `UpdatePolicyRequest` Form Request classes). There is no model observer or `prepareForValidation` hook for recomputation. The frontend is the sole source of truth for what gets persisted.
 
 ---
 
@@ -556,13 +601,45 @@ class UpdatePolicyRequest extends FormRequest
 
 The create form:
 1. Shows a dropdown of active agents (`is_active = true`).
-2. When the user selects a product type, the form auto-populates `commission_percentage` and `promoter_commission_percentage` from `productCommissionMap`.
-3. `commission_amount` is calculated client-side as `premium_amount × commission_percentage / 100`.
-4. ISR and billing retention default to 10% and 5% respectively but can be overridden.
+2. The PNA field shows the computed PCA (`PNA − $1,350`) in a green box below it.
+3. When the user selects a product type, the form auto-populates `commission_percentage` and `promoter_commission_percentage` from `productCommissionMap`.
+4. `commission_amount` is calculated client-side as `PCA × commission_percentage / 100`.
+5. ISR defaults to 10% and is **required**; impuesto cedular starts at 0 (optional, blank is stored as 0) unless the selected agent has `cedular_tax_enabled`, in which case it is prefilled with 5; costo de facturación starts empty and is **required**.
+6. `policy_number` only accepts digits and both `policy_number` and `client_name` disable browser autofill (no card/address suggestions).
 
-The financial summary preview in `PolicyForm.vue` (`summary` computed property) applies ISR and billing **sequentially** (ISR first, then billing on the after-ISR amount) — matching the backend `agentNetAmount()` and `promoterNetAmount()` methods exactly.
+The financial summary preview in `PolicyForm.vue` (`summary` computed property) applies ISR, then impuesto cedular, then billing sequentially — matching the backend `agentNetAmount()` and `promoterNetAmount()` methods exactly.
 
-> **Frontend/backend duplication note:** Commission amounts (`commission_amount`, `promoter_commission_amount`) are calculated **client-side** in the Vue Create/Edit forms as `premium_amount × percentage / 100`. The backend Controller does NOT independently recompute them — it simply saves whatever values the frontend submitted. There is no model observer, Form Request `prepareForValidation` hook, or backend recalculation. The frontend is the sole source of truth for what gets persisted.
+> **Frontend/backend duplication note:** Commission amounts (`commission_amount`, `promoter_commission_amount`) are calculated **client-side** in the Vue Create/Edit forms as `PCA × percentage / 100`. The backend Controller does NOT independently recompute them — it simply saves whatever values the frontend submitted. There is no model observer, Form Request `prepareForValidation` hook, or backend recalculation. The frontend is the sole source of truth for what gets persisted.
+
+---
+
+## Bulk Import from Excel (`PolicyImportController`)
+
+The policies list (`Policies/Index.vue`) has an **Importar pólizas** button that opens a dialog where the user can download the template and upload an `.xlsx`, `.xls` or `.csv` file (max 10 MB).
+
+### Template columns
+
+| # | Column | Required | Notes |
+|---|--------|----------|-------|
+| 1 | `Número de póliza` | Yes | Digits only, unique. Stored as text in the template so Excel keeps all digits. |
+| 2 | `Cliente` | No | Free text. |
+| 3 | `Producto` | Yes | Must match a product defined in the active commission schemes (e.g. `METALIFE`). |
+| 4 | `Agente` | Yes | Name of an **active** agent (case/accent insensitive match). |
+| 5 | `Fecha de emisión` | Yes | `dd/mm/aaaa`, `aaaa-mm-dd` or an Excel date cell. |
+| 6 | `PNA` | Yes | Numeric. |
+| 7 | `% Retención ISR` | Yes | Numeric percentage (e.g. `10`). |
+| 8 | `% Impuesto cedular` | No | Blank is stored as `0`, or `5` when the agent has `cedular_tax_enabled`. |
+| 9 | `% Costo facturación` | Yes | Numeric percentage. |
+| 10 | `Estatus` | No | `Activa` (default), `No tomada` or `Pagada`. |
+| 11 | `Conducto de pago` | No | `Efectivo` (default) or `Automático`. |
+
+Headers are matched by normalized text, so aliases such as `No. Póliza`, `prima`, `isr` or `cedular` also work, and column order is irrelevant.
+
+### Behavior
+- The file is read with **PhpSpreadsheet** (`phpoffice/phpspreadsheet`), always from the **first sheet**.
+- Agent and product commissions are resolved from the active commission scheme, and the amounts are computed on the **PCA** (`PNA − Policy::PCA_DEDUCTION`), exactly like the create/edit form.
+- Rows are validated individually: valid rows are created, invalid rows are skipped and reported as `Fila N: <motivo>` (unknown agent/product, duplicated or missing policy number, invalid date, missing PNA or billing cost).
+- The result is flashed as `import_result` (`{ imported, errors[] }`) and shown inside the dialog. Flash messages are shared to Inertia via `handleInertiaRequests`.
 
 ---
 
@@ -585,5 +662,5 @@ This is a separate endpoint from the full `update` to allow quick status toggles
 2. **No bulk status change:** Each policy must be updated individually.
 3. **Frontend/backend commission duplication:** `commission_amount` and `promoter_commission_amount` are computed client-side in Vue and saved as-is by the backend. Validation is handled by dedicated Form Request classes (`StorePolicyRequest`, `UpdatePolicyRequest`), but no independent backend recomputation occurs. A model observer or `prepareForValidation` hook would be more robust.
 4. **Commission auto-calculation only on create/edit:** If the active commission scheme changes after policies exist, existing policies retain old commission values. There is no bulk recalculation mechanism.
-5. **Product types hardcoded:** `METLIFE`, `PERFECTLIFE`, `PRIMORDIAL` appear as string literals in the controller, dashboard, and calculators. An `enum` or database table would be more maintainable.
+5. **Product types hardcoded:** `METALIFE`, `PERFECTLIFE`, `PRIMORDIAL` appear as string literals in the controller, dashboard, and calculators. An `enum` or database table would be more maintainable.
 6. **No policy cancellation/refund workflow:** Only three statuses. There's no concept of partial payments, renewals, or cancellations.

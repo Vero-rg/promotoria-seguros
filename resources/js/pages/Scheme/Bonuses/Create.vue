@@ -386,7 +386,7 @@ const submit = () => {
                                             <div class="flex-1">
                                                 <label class="block text-xs text-gray-500 mb-1">Producto</label>
                                                 <el-select v-model="prod.product_type" style="width: 100%;">
-                                                    <el-option label="Vida (METLIFE / PERFECTLIFE)" value="Vida" />
+                                                    <el-option label="Vida (METALIFE / PERFECTLIFE)" value="Vida" />
                                                     <el-option label="Primordial" value="Primordial" />
                                                 </el-select>
                                             </div>
@@ -519,6 +519,11 @@ const submit = () => {
                                      <component :is="currentTemplate.component" :conditions="tier.conditions" />
 
                                      <template v-if="selectedTemplate === 'agent_first_year_production'">
+                                         <!-- En este bono agent_percentage representa el Bono Efectivo (%) -->
+                                         <div class="flex-1 min-w-[140px]">
+                                             <label class="block text-sm font-medium text-gray-700 mb-1">Bono Efectivo (%)</label>
+                                             <el-input-number v-model="tier.agent_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />
+                                         </div>
                                          <div class="flex-1 min-w-[140px]">
                                              <label class="block text-sm font-medium text-gray-700 mb-1">Bono Automático (%)</label>
                                              <el-input-number v-model="tier.agent_automatic_percentage" :min="0" :max="100" :step="0.01" :precision="2" style="width: 100%;" required />

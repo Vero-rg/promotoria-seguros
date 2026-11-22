@@ -1,13 +1,15 @@
 <script setup>
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { FileText, Calendar, DollarSign, User, Percent, Receipt, Calculator } from 'lucide-vue-next';
+import { FileText, Calendar, DollarSign, User, Percent, Receipt, Calculator, Wallet } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { ElMessage } from 'element-plus';
 
 const props = defineProps({
     policy: Object,
 });
+
+const PCA_DEDUCTION = 1350;
 
 const STATUS_OPTIONS = ['Activa', 'No tomada', 'Pagada'];
 
@@ -47,37 +49,42 @@ const statusColors = {
 
 // Cálculo del resumen financiero
 const summary = computed(() => {
-    const premium = Number(props.policy.premium_amount) || 0;
-    const agentComm = Number(props.policy.commission_amount) || 0;
-    const promoterComm = Number(props.policy.promoter_commission_amount) || 0;
     const isrPct = Number(props.policy.isr_retention) || 0;
+    const cedularPct = Number(props.policy.cedular_tax) || 0;
     const billingPct = Number(props.policy.billing_retention) || 0;
 
-    // ISR y facturación ahora se deducen de las comisiones, no de la prima
-    const isrAgentAmount = agentComm * (isrPct / 100);
-    const billingAgentAmount = agentComm * (billingPct / 100);
-    const isrPromoterAmount = promoterComm * (isrPct / 100);
-    const billingPromoterAmount = promoterComm * (billingPct / 100);
+    // Deducciones secuenciales sobre cada comisión: ISR → cedular → facturación
+    const breakdown = (commission) => {
+        const isr = commission * (isrPct / 100);
+        const afterIsr = commission - isr;
+        const cedular = afterIsr * (cedularPct / 100);
+        const afterCedular = afterIsr - cedular;
+        const billing = afterCedular * (billingPct / 100);
 
-    const agentNetComm = agentComm - isrAgentAmount - billingAgentAmount;
-    const promoterNetComm = promoterComm - isrPromoterAmount - billingPromoterAmount;
-    const totalDeductions = isrAgentAmount + billingAgentAmount + isrPromoterAmount + billingPromoterAmount;
-    const netAmount = agentNetComm + promoterNetComm;
+        return { isr, cedular, billing, net: afterCedular - billing };
+    };
+
+    const pna = Number(props.policy.premium_amount) || 0;
+    const agentComm = Number(props.policy.commission_amount) || 0;
+    const promoterComm = Number(props.policy.promoter_commission_amount) || 0;
+    const agent = breakdown(agentComm);
+    const promoter = breakdown(promoterComm);
+
+    const totalDeductions =
+        agent.isr + agent.cedular + agent.billing + promoter.isr + promoter.cedular + promoter.billing;
 
     return {
-        premium,
+        pna,
+        pca: Math.max(0, pna - PCA_DEDUCTION),
         agentComm,
         promoterComm,
         isrPct,
+        cedularPct,
         billingPct,
-        isrAgentAmount,
-        billingAgentAmount,
-        isrPromoterAmount,
-        billingPromoterAmount,
-        agentNetComm,
-        promoterNetComm,
+        agent,
+        promoter,
         totalDeductions,
-        netAmount,
+        netAmount: agent.net + promoter.net,
     };
 });
 </script>
@@ -163,6 +170,16 @@ const summary = computed(() => {
                                 <p class="text-base font-medium text-gray-900">{{ policy.product_type }}</p>
                             </div>
                         </div>
+
+                        <!-- Conducto de pago -->
+                        <div v-if="policy.payment_method">
+                            <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4 flex items-center">
+                                <Wallet class="w-4 h-4 mr-2" /> Conducto de pago
+                            </h3>
+                            <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                                <p class="text-base font-medium text-gray-900">{{ policy.payment_method }}</p>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Columna Derecha: Detalles Financieros -->
@@ -174,18 +191,19 @@ const summary = computed(() => {
                             
                             <div class="grid grid-cols-2 gap-2">
                                 <div class="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
-                                    <p class="text-xs text-blue-600/80 font-medium mb-1 uppercase">Prima Total</p>
+                                    <p class="text-xs text-blue-600/80 font-medium mb-1 uppercase">PNA</p>
                                     <p class="text-2xl font-bold text-blue-900">{{ formatCurrency(policy.premium_amount) }}</p>
+                                    <p class="text-xs text-green-700 mt-1 font-medium">PCA: {{ formatCurrency(summary.pca) }}</p>
                                 </div>
                                 <div class="bg-green-50/50 rounded-xl p-4 border border-green-100">
                                     <p class="text-xs text-green-600/80 font-medium mb-1 uppercase">Comisión Agente</p>
                                     <p class="text-2xl font-bold text-green-900">{{ formatCurrency(policy.commission_amount) }}</p>
-                                    <p class="text-xs text-green-700 mt-1 font-medium">{{ policy.commission_percentage }}% de la prima</p>
+                                    <p class="text-xs text-green-700 mt-1 font-medium">{{ policy.commission_percentage }}% de la PCA</p>
                                 </div>
                                 <div class="bg-purple-50/50 rounded-xl p-4 border border-purple-100">
                                     <p class="text-xs text-purple-600/80 font-medium mb-1 uppercase">Comisión Promotor</p>
                                     <p class="text-2xl font-bold text-purple-900">{{ formatCurrency(policy.promoter_commission_amount) }}</p>
-                                    <p class="text-xs text-purple-700 mt-1 font-medium">{{ policy.promoter_commission_percentage }}% de la prima</p>
+                                    <p class="text-xs text-purple-700 mt-1 font-medium">{{ policy.promoter_commission_percentage }}% de la PCA</p>
                                 </div>
                             </div>
 
@@ -196,6 +214,10 @@ const summary = computed(() => {
                                 <div class="flex justify-between items-center py-2 border-b border-gray-200">
                                     <span class="text-sm text-gray-600">Retención ISR</span>
                                     <span class="text-sm font-medium text-gray-900">{{ policy.isr_retention }}%</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-200">
+                                    <span class="text-sm text-gray-600">Impuesto cedular</span>
+                                    <span class="text-sm font-medium text-gray-900">{{ policy.cedular_tax }}%</span>
                                 </div>
                                 <div class="flex justify-between items-center py-2">
                                     <span class="text-sm text-gray-600">Costo de Facturación</span>
@@ -217,44 +239,56 @@ const summary = computed(() => {
                             <!-- Desglose -->
                             <div class="space-y-0">
                                 <div class="flex justify-between items-center py-1">
-                                    <span class="text-sm text-gray-600">Prima Total</span>
-                                    <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.premium) }}</span>
+                                    <span class="text-sm text-gray-600">PNA</span>
+                                    <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.pna) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-1">
+                                    <span class="text-sm text-gray-600">PCA (PNA − $1,350)</span>
+                                    <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.pca) }}</span>
                                 </div>
 
                                 <!-- ── Agente ─────────────────────────────── -->
                                 <div class="flex justify-between items-center py-1 border-t border-gray-200">
-                                    <span class="text-sm text-gray-600">− Comisión Agente ({{ policy.commission_percentage }}%)</span>
+                                    <span class="text-sm text-gray-600">− Comisión Agente ({{ policy.commission_percentage }}% de la PCA)</span>
                                     <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.agentComm) }}</span>
                                 </div>
                                 <div class="flex justify-between items-center py-0.5 pl-4">
                                     <span class="text-xs text-gray-400">− ISR Agente ({{ summary.isrPct }}%)</span>
-                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.isrAgentAmount) }}</span>
+                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.agent.isr) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-0.5 pl-4">
+                                    <span class="text-xs text-gray-400">− Impuesto cedular Agente ({{ summary.cedularPct }}%)</span>
+                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.agent.cedular) }}</span>
                                 </div>
                                 <div class="flex justify-between items-center py-0.5 pl-4">
                                     <span class="text-xs text-gray-400">− Facturación Agente ({{ summary.billingPct }}%)</span>
-                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.billingAgentAmount) }}</span>
+                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.agent.billing) }}</span>
                                 </div>
                                 <div class="flex justify-between items-center py-0.5 pl-4 border-b border-gray-100">
                                     <span class="text-xs font-medium text-green-700">Subtotal Neto Agente</span>
-                                    <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.agentNetComm) }}</span>
+                                    <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.agent.net) }}</span>
                                 </div>
 
                                 <!-- ── Promotor ──────────────────────────── -->
                                 <div class="flex justify-between items-center py-1">
-                                    <span class="text-sm text-gray-600">− Comisión Promotor ({{ policy.promoter_commission_percentage }}%)</span>
+                                    <span class="text-sm text-gray-600">− Comisión Promotor ({{ policy.promoter_commission_percentage }}% de la PCA)</span>
                                     <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.promoterComm) }}</span>
                                 </div>
                                 <div class="flex justify-between items-center py-0.5 pl-4">
                                     <span class="text-xs text-gray-400">− ISR Promotor ({{ summary.isrPct }}%)</span>
-                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.isrPromoterAmount) }}</span>
+                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.promoter.isr) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-0.5 pl-4">
+                                    <span class="text-xs text-gray-400">− Impuesto cedular Promotor ({{ summary.cedularPct }}%)</span>
+                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.promoter.cedular) }}</span>
                                 </div>
                                 <div class="flex justify-between items-center py-0.5 pl-4">
                                     <span class="text-xs text-gray-400">− Facturación Promotor ({{ summary.billingPct }}%)</span>
-                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.billingPromoterAmount) }}</span>
+                                    <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.promoter.billing) }}</span>
                                 </div>
                                 <div class="flex justify-between items-center py-0.5 pl-4 border-b border-gray-100">
                                     <span class="text-xs font-medium text-green-700">Subtotal Neto Promotor</span>
-                                    <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.promoterNetComm) }}</span>
+                                    <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.promoter.net) }}</span>
                                 </div>
 
                                 <!-- Totales -->

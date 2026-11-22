@@ -6,46 +6,24 @@ use App\Http\Requests\StorePolicyRequest;
 use App\Http\Requests\UpdatePolicyRequest;
 use App\Models\Policy;
 use App\Models\Agent;
-use App\Models\Scheme;
 use App\Models\Promoter;
+use App\Services\ProductCommissionService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class PolicyController extends Controller
 {
+    public function __construct(private ProductCommissionService $productCommissionService)
+    {
+    }
+
     /**
      * Obtiene el mapa de producto → { agent_percentage, promoter_percentage }
      * desde los esquemas de comisión activos (última versión vigente).
      */
     public function getProductCommissionMap(): array
     {
-        $schemes = Scheme::with(['versions.tiers'])
-            ->where('type', 'commission')
-            ->where('is_active', true)
-            ->get();
-
-        $map = [];
-
-        foreach ($schemes as $scheme) {
-            $latestVersion = $scheme->versions->sortByDesc('starts_at')->first();
-            if (!$latestVersion || !$latestVersion->tiers) continue;
-
-            foreach ($latestVersion->tiers as $tier) {
-                $conditions = $tier->conditions ?? [];
-                $productType = $conditions['product_type'] ?? null;
-                if (!$productType) continue;
-
-                // Solo sobreescribe si no existe aún (primer encuentro gana)
-                if (!isset($map[$productType])) {
-                    $map[$productType] = [
-                        'agent_percentage' => (float) ($tier->agent_percentage ?? 0),
-                        'promoter_percentage' => (float) ($tier->promoter_percentage ?? 0),
-                    ];
-                }
-            }
-        }
-
-        return $map;
+        return $this->productCommissionService->map();
     }
 
     public function index()

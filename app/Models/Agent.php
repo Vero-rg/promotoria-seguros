@@ -16,11 +16,13 @@ class Agent extends Model
         'photo',
         'is_active',
         'deactivated_at',
+        'cedular_tax_enabled',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'deactivated_at' => 'datetime',
+        'cedular_tax_enabled' => 'boolean',
     ];
 
     // Relación: Un agente pertenece a un promotor
@@ -51,12 +53,19 @@ class Agent extends Model
     {
         $monthKey = substr($periodEnd, 0, 7); // "YYYY-MM"
 
-        return $query->where(function ($q) use ($monthKey) {
+        // Función de formato del mes según el motor de BD (MySQL en producción, SQLite en pruebas).
+        $monthExpression = match ($query->getModel()->getConnection()->getDriverName()) {
+            'sqlite' => "strftime('%Y-%m', deactivated_at)",
+            'pgsql'  => "to_char(deactivated_at, 'YYYY-MM')",
+            default  => "DATE_FORMAT(deactivated_at, '%Y-%m')",
+        };
+
+        return $query->where(function ($q) use ($monthKey, $monthExpression) {
             $q->where('is_active', true)
-              ->orWhere(function ($q2) use ($monthKey) {
+              ->orWhere(function ($q2) use ($monthKey, $monthExpression) {
                   $q2->where('is_active', false)
                      ->whereNotNull('deactivated_at')
-                     ->whereRaw("DATE_FORMAT(deactivated_at, '%Y-%m') >= ?", [$monthKey]);
+                     ->whereRaw("{$monthExpression} >= ?", [$monthKey]);
               });
         });
     }

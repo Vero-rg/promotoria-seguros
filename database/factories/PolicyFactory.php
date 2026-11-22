@@ -26,9 +26,11 @@ class PolicyFactory extends Factory
             'promoter_commission_percentage' => fake()->randomFloat(2, 0, 15),
             'promoter_commission_amount'   => 0,
             'isr_retention'                => 10.00,
+            'cedular_tax'                  => 0.00,
             'billing_retention'            => 5.00,
             'status'                       => Policy::STATUS_ACTIVA,
             'product_type'                 => 'Vida', // default
+            'payment_method'               => Policy::PAYMENT_METHOD_CASH,
         ];
     }
 

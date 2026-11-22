@@ -198,14 +198,21 @@ const breadcrumbs = [
                                             </div>
                                         </template>
                                     </el-table-column>
-                                    <el-table-column v-if="scheme.target === 'agent' || scheme.target === 'both'" min-width="140" align="center">
-                                        <template #header>
-                                            <span v-if="scheme.template_key === 'agent_first_year_production'">Bono Automático (%)</span>
-                                            <span v-else>Bono Agente (%)</span>
-                                        </template>
+                                    <template v-if="scheme.template_key === 'agent_first_year_production' && (scheme.target === 'agent' || scheme.target === 'both')">
+                                        <el-table-column label="Bono Efectivo (%)" min-width="140" align="center">
+                                            <template #default="scope">
+                                                <span class="font-bold text-slate-700 text-lg">{{ scope.row.agent_percentage }}%</span>
+                                            </template>
+                                        </el-table-column>
+                                        <el-table-column label="Bono Automático (%)" min-width="140" align="center">
+                                            <template #default="scope">
+                                                <span class="font-bold text-slate-700 text-lg">{{ scope.row.agent_automatic_percentage }}%</span>
+                                            </template>
+                                        </el-table-column>
+                                    </template>
+                                    <el-table-column v-else-if="scheme.target === 'agent' || scheme.target === 'both'" label="Bono Agente (%)" min-width="140" align="center">
                                         <template #default="scope">
-                                            <span v-if="scheme.template_key === 'agent_first_year_production'" class="font-bold text-slate-700 text-lg">{{ scope.row.agent_automatic_percentage }}%</span>
-                                            <span v-else class="font-bold text-slate-700 text-lg">{{ scope.row.agent_percentage }}%</span>
+                                            <span class="font-bold text-slate-700 text-lg">{{ scope.row.agent_percentage }}%</span>
                                         </template>
                                     </el-table-column>
                                     <el-table-column v-if="scheme.target === 'promoter' || scheme.target === 'both'" label="Bono Promotor (%)" min-width="140" align="center">

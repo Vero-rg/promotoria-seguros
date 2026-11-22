@@ -1,6 +1,8 @@
 <script setup>
 import { useForm } from '@inertiajs/vue3';
-import { watch, computed } from 'vue';
+import { computed, watch } from 'vue';
+
+const PCA_DEDUCTION = 1350;
 
 const props = defineProps({
     policy: {
@@ -16,9 +18,11 @@ const props = defineProps({
             promoter_commission_percentage: 0,
             promoter_commission_amount: 0,
             isr_retention: 10.00,
-            billing_retention: 5.00,
+            cedular_tax: 0.00,
+            billing_retention: null,
             status: 'activa',
             product_type: '',
+            payment_method: 'Efectivo',
         }),
     },
     agents: Array,
@@ -37,9 +41,11 @@ const form = useForm({
     promoter_commission_percentage: props.policy.promoter_commission_percentage,
     promoter_commission_amount: props.policy.promoter_commission_amount,
     isr_retention: props.policy.isr_retention,
-    billing_retention: props.policy.billing_retention,
+    cedular_tax: props.policy.cedular_tax ?? 0,
+    billing_retention: props.policy.billing_retention ?? null,
     status: props.policy.status,
     product_type: props.policy.product_type || '',
+    payment_method: props.policy.payment_method || 'Efectivo',
 });
 
 // Productos disponibles ordenados alfabéticamente
@@ -47,6 +53,37 @@ const productOptions = computed(() => {
     if (!props.productCommissionMap) return [];
     return Object.keys(props.productCommissionMap).sort();
 });
+
+const roundAmount = (value) => Number(value.toFixed(2));
+
+// PNA capturado por el usuario; el PCA (base de comisiones) es PNA − $1,350 por póliza
+const pna = computed(() => Number(form.premium_amount) || 0);
+const pca = computed(() => Math.max(0, roundAmount(pna.value - PCA_DEDUCTION)));
+
+// Al enfocar el PNA con valor 0 se limpia el campo para capturar directo
+const handlePnaFocus = () => {
+    if (pna.value === 0) {
+        form.premium_amount = '';
+    }
+};
+
+const handlePnaBlur = () => {
+    if (form.premium_amount === '' || form.premium_amount === null || form.premium_amount === undefined) {
+        form.premium_amount = 0;
+    }
+};
+
+// Las comisiones se calculan sobre el PCA, no sobre el PNA
+const recalcCommissions = () => {
+    const base = pca.value;
+    if (base <= 0) {
+        form.commission_amount = 0;
+        form.promoter_commission_amount = 0;
+        return;
+    }
+    form.commission_amount = roundAmount(base * (Number(form.commission_percentage) / 100));
+    form.promoter_commission_amount = roundAmount(base * (Number(form.promoter_commission_percentage) / 100));
+};
 
 // Cuando se selecciona un producto, auto-asignar comisiones de agente y promotor
 watch(() => form.product_type, (productType) => {
@@ -62,25 +99,18 @@ watch(() => form.product_type, (productType) => {
     form.commission_percentage = Number(map.agent_percentage) || 0;
     form.promoter_commission_percentage = Number(map.promoter_percentage) || 0;
 
-    // Recalcular montos si hay prima
-    const premium = Number(form.premium_amount) || 0;
-    if (premium > 0) {
-        form.commission_amount = Number((premium * (Number(map.agent_percentage) / 100)).toFixed(2));
-        form.promoter_commission_amount = Number((premium * (Number(map.promoter_percentage) / 100)).toFixed(2));
-    }
+    recalcCommissions();
 });
 
-// Recalcular montos al cambiar la prima o porcentajes manualmente
-const recalcCommissions = () => {
-    const premium = Number(form.premium_amount) || 0;
-    if (premium <= 0) {
-        form.commission_amount = 0;
-        form.promoter_commission_amount = 0;
+// Agents with the cedular tax flag enabled register new policies with a 5% default
+watch(() => form.agent_id, (agentId) => {
+    if (props.isEdit) {
         return;
     }
-    form.commission_amount = Number((premium * (Number(form.commission_percentage) / 100)).toFixed(2));
-    form.promoter_commission_amount = Number((premium * (Number(form.promoter_commission_percentage) / 100)).toFixed(2));
-};
+
+    const agent = props.agents?.find((item) => String(item.id) === String(agentId));
+    form.cedular_tax = agent?.cedular_tax_enabled ? 5 : 0;
+});
 
 watch(() => form.premium_amount, recalcCommissions);
 watch(() => form.commission_percentage, recalcCommissions);
@@ -89,41 +119,41 @@ watch(() => form.promoter_commission_percentage, recalcCommissions);
 // ---------- Resumen Financiero ----------
 
 const summary = computed(() => {
-    const premium = Number(form.premium_amount) || 0;
-    const agentComm = Number(form.commission_amount) || 0;
-    const promoterComm = Number(form.promoter_commission_amount) || 0;
     const isrPct = Number(form.isr_retention) || 0;
+    const cedularPct = Number(form.cedular_tax) || 0;
     const billingPct = Number(form.billing_retention) || 0;
 
-    // ISR y facturación se calculan secuencialmente sobre cada comisión:
-    // primero se deduce ISR, luego facturación sobre el monto después de ISR
-    const isrAgentAmount = agentComm * (isrPct / 100);
-    const afterIsrAgent = agentComm - isrAgentAmount;
-    const billingAgentAmount = afterIsrAgent * (billingPct / 100);
-    const agentNetComm = afterIsrAgent - billingAgentAmount;
+    // Deducciones secuenciales sobre cada comisión: ISR → cedular → facturación
+    const breakdown = (commission) => {
+        const isr = commission * (isrPct / 100);
+        const afterIsr = commission - isr;
+        const cedular = afterIsr * (cedularPct / 100);
+        const afterCedular = afterIsr - cedular;
+        const billing = afterCedular * (billingPct / 100);
 
-    const isrPromoterAmount = promoterComm * (isrPct / 100);
-    const afterIsrPromoter = promoterComm - isrPromoterAmount;
-    const billingPromoterAmount = afterIsrPromoter * (billingPct / 100);
-    const promoterNetComm = afterIsrPromoter - billingPromoterAmount;
+        return { isr, cedular, billing, net: afterCedular - billing };
+    };
 
-    const totalDeductions = isrAgentAmount + billingAgentAmount + isrPromoterAmount + billingPromoterAmount;
-    const netAmount = agentNetComm + promoterNetComm;
+    const agentComm = Number(form.commission_amount) || 0;
+    const promoterComm = Number(form.promoter_commission_amount) || 0;
+    const agent = breakdown(agentComm);
+    const promoter = breakdown(promoterComm);
+
+    const totalDeductions =
+        agent.isr + agent.cedular + agent.billing + promoter.isr + promoter.cedular + promoter.billing;
 
     return {
-        premium,
+        pna: pna.value,
+        pca: pca.value,
         agentComm,
         promoterComm,
         isrPct,
+        cedularPct,
         billingPct,
-        isrAgentAmount,
-        billingAgentAmount,
-        isrPromoterAmount,
-        billingPromoterAmount,
-        agentNetComm,
-        promoterNetComm,
+        agent,
+        promoter,
         totalDeductions,
-        netAmount,
+        netAmount: agent.net + promoter.net,
     };
 });
 
@@ -173,14 +203,36 @@ const submit = () => {
                     </div>
 
                 <div>
-                    <label for="policy_number" class="block text-sm font-medium text-gray-700 mb-1">Número de Póliza</label>
-                    <el-input id="policy_number" v-model="form.policy_number" type="text" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm" required/>
+                    <label for="policy_folio" class="block text-sm font-medium text-gray-700 mb-1">Número de Póliza</label>
+                    <el-input
+                        id="policy_folio"
+                        name="policy_folio"
+                        v-model="form.policy_number"
+                        type="text"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        data-form-type="other"
+                        maxlength="30"
+                        :formatter="(value) => value"
+                        :parser="(value) => String(value ?? '').replace(/\D/g, '')"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"
+                        required
+                    />
                     <div v-if="form.errors.policy_number" class="text-red-500 text-xs mt-1">{{ form.errors.policy_number }}</div>
                 </div>
 
                 <div>
-                    <label for="client_name" class="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-                    <el-input id="client_name" v-model="form.client_name" type="text" placeholder="Nombre del cliente" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
+                    <label for="policy_client" class="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
+                    <el-input
+                        id="policy_client"
+                        name="policy_client"
+                        v-model="form.client_name"
+                        type="text"
+                        autocomplete="off"
+                        data-form-type="other"
+                        placeholder="Nombre del cliente"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"
+                    />
                     <div v-if="form.errors.client_name" class="text-red-500 text-xs mt-1">{{ form.errors.client_name }}</div>
                 </div>
 
@@ -209,6 +261,15 @@ const submit = () => {
                         <div v-if="form.errors.status" class="text-red-500 text-xs mt-1">{{ form.errors.status }}</div>
                     </div>
                 </div>
+
+                <div>
+                    <label for="payment_method" class="block text-sm font-medium text-gray-700 mb-1">Conducto de pago</label>
+                    <el-select id="payment_method" v-model="form.payment_method" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm" required>
+                        <el-option value="Efectivo">Efectivo</el-option>
+                        <el-option value="Automático">Automático</el-option>
+                    </el-select>
+                    <div v-if="form.errors.payment_method" class="text-red-500 text-xs mt-1">{{ form.errors.payment_method }}</div>
+                </div>
             </div>
 
             <!-- Columna Derecha: Valores Financieros + Resumen -->
@@ -216,12 +277,18 @@ const submit = () => {
                 <h3 class="text-lg font-medium text-gray-900 border-b pb-2">Valores y Comisiones</h3>
                 
                 <div>
-                    <label for="premium_amount" class="block text-sm font-medium text-gray-700 mb-1">Prima Total ($)</label>
+                    <label for="premium_amount" class="block text-sm font-medium text-gray-700 mb-1">PNA ($)</label>
                     <el-input
-                    :formatter="(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')"
-                    :parser="(value) => value.replace(/\$\s?|(,*)/g, '')"
-                    id="premium_amount" v-model="form.premium_amount" :min="0" :step="100" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm" required/>
+                    :formatter="(value) => (value === '' || value === null || value === undefined ? '' : `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ','))"
+                    :parser="(value) => String(value ?? '').replace(/\$\s?|(,*)/g, '')"
+                    id="premium_amount" v-model="form.premium_amount" :min="0" :step="100" @focus="handlePnaFocus" @blur="handlePnaBlur" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm" required/>
                     <div v-if="form.errors.premium_amount" class="text-red-500 text-xs mt-1">{{ form.errors.premium_amount }}</div>
+
+                    <!-- PCA = PNA − $1,350 por póliza -->
+                    <div v-if="pna > 0" class="mt-2 flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-3 py-1.5">
+                        <span class="text-xs font-medium text-green-700">PCA (PNA − $1,350)</span>
+                        <span class="text-sm font-bold text-green-700">{{ formatCurrency(pca) }}</span>
+                    </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
@@ -239,61 +306,80 @@ const submit = () => {
 
                 <div class="grid grid-cols-2 gap-4 pt-2">
                     <div>
-                        <label for="isr_retention" class="block text-sm font-medium text-gray-700 mb-1">% Retención ISR</label>
-                        <el-input id="isr_retention" v-model="form.isr_retention" :min="0" :max="100" :step="0.5" :precision="2" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
+                        <label for="isr_retention" class="block text-sm font-medium text-gray-700 mb-1">% Retención ISR <span class="text-red-500">*</span></label>
+                        <el-input id="isr_retention" v-model="form.isr_retention" :min="0" :max="100" :step="0.5" :precision="2" placeholder="Obligatorio" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
+                        <div v-if="form.errors.isr_retention" class="text-red-500 text-xs mt-1">{{ form.errors.isr_retention }}</div>
                     </div>
                     <div>
-                        <label for="billing_retention" class="block text-sm font-medium text-gray-700 mb-1">% Costo Facturación</label>
-                        <el-input id="billing_retention" v-model="form.billing_retention" :min="0" :max="100" :step="0.5" :precision="2" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
+                        <label for="cedular_tax" class="block text-sm font-medium text-gray-700 mb-1">% Impuesto cedular</label>
+                        <el-input id="cedular_tax" v-model="form.cedular_tax" :min="0" :max="100" :step="0.5" :precision="2" placeholder="0" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
+                        <div v-if="form.errors.cedular_tax" class="text-red-500 text-xs mt-1">{{ form.errors.cedular_tax }}</div>
+                    </div>
+                    <div>
+                        <label for="billing_retention" class="block text-sm font-medium text-gray-700 mb-1">% Costo Facturación <span class="text-red-500">*</span></label>
+                        <el-input id="billing_retention" v-model="form.billing_retention" :min="0" :max="100" :step="0.5" :precision="2" placeholder="Obligatorio" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
+                        <div v-if="form.errors.billing_retention" class="text-red-500 text-xs mt-1">{{ form.errors.billing_retention }}</div>
                     </div>
                 </div>
 
                 <!-- Resumen Financiero -->
-                <div v-if="summary.premium > 0" class="mt-6 bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+                <div v-if="summary.pna > 0" class="mt-6 bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
                     <div class="px-5 py-3 bg-gray-100 border-b border-gray-200">
                         <h4 class="text-sm font-semibold text-gray-800">Resumen Financiero</h4>
                     </div>
                     <div class="p-5 space-y-2">
-                        <!-- Prima -->
+                        <!-- PNA / PCA -->
                         <div class="flex justify-between items-center py-1">
-                            <span class="text-sm text-gray-600">Prima Total</span>
-                            <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.premium) }}</span>
+                            <span class="text-sm text-gray-600">PNA</span>
+                            <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.pna) }}</span>
+                        </div>
+                        <div class="flex justify-between items-center py-1">
+                            <span class="text-sm text-gray-600">PCA (PNA − $1,350)</span>
+                            <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(summary.pca) }}</span>
                         </div>
 
                         <!-- ── Agente ─────────────────────────────── -->
                         <div class="flex justify-between items-center py-1 border-t border-gray-200">
-                            <span class="text-sm text-gray-600">− Comisión Agente ({{ form.commission_percentage }}%)</span>
+                            <span class="text-sm text-gray-600">− Comisión Agente ({{ form.commission_percentage }}% de la PCA)</span>
                             <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.agentComm) }}</span>
                         </div>
                         <div class="flex justify-between items-center py-0.5 pl-4">
                             <span class="text-xs text-gray-400">− ISR Agente ({{ summary.isrPct }}%)</span>
-                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.isrAgentAmount) }}</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.agent.isr) }}</span>
+                        </div>
+                        <div class="flex justify-between items-center py-0.5 pl-4">
+                            <span class="text-xs text-gray-400">− Impuesto cedular Agente ({{ summary.cedularPct }}%)</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.agent.cedular) }}</span>
                         </div>
                         <div class="flex justify-between items-center py-0.5 pl-4">
                             <span class="text-xs text-gray-400">− Facturación Agente ({{ summary.billingPct }}%)</span>
-                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.billingAgentAmount) }}</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.agent.billing) }}</span>
                         </div>
                         <div class="flex justify-between items-center py-0.5 pl-4 border-b border-gray-100">
                             <span class="text-xs font-medium text-green-700">Subtotal Neto Agente</span>
-                            <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.agentNetComm) }}</span>
+                            <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.agent.net) }}</span>
                         </div>
 
                         <!-- ── Promotor ──────────────────────────── -->
                         <div class="flex justify-between items-center py-1">
-                            <span class="text-sm text-gray-600">− Comisión Promotor ({{ form.promoter_commission_percentage }}%)</span>
+                            <span class="text-sm text-gray-600">− Comisión Promotor ({{ form.promoter_commission_percentage }}% de la PCA)</span>
                             <span class="text-sm font-medium text-red-600">− {{ formatCurrency(summary.promoterComm) }}</span>
                         </div>
                         <div class="flex justify-between items-center py-0.5 pl-4">
                             <span class="text-xs text-gray-400">− ISR Promotor ({{ summary.isrPct }}%)</span>
-                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.isrPromoterAmount) }}</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.promoter.isr) }}</span>
+                        </div>
+                        <div class="flex justify-between items-center py-0.5 pl-4">
+                            <span class="text-xs text-gray-400">− Impuesto cedular Promotor ({{ summary.cedularPct }}%)</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.promoter.cedular) }}</span>
                         </div>
                         <div class="flex justify-between items-center py-0.5 pl-4">
                             <span class="text-xs text-gray-400">− Facturación Promotor ({{ summary.billingPct }}%)</span>
-                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.billingPromoterAmount) }}</span>
+                            <span class="text-xs font-medium text-red-500">− {{ formatCurrency(summary.promoter.billing) }}</span>
                         </div>
                         <div class="flex justify-between items-center py-0.5 pl-4 border-b border-gray-100">
                             <span class="text-xs font-medium text-green-700">Subtotal Neto Promotor</span>
-                            <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.promoterNetComm) }}</span>
+                            <span class="text-xs font-bold text-green-700">{{ formatCurrency(summary.promoter.net) }}</span>
                         </div>
 
                         <!-- Totales -->
@@ -311,7 +397,7 @@ const submit = () => {
                 </div>
 
                 <div v-else class="mt-6 bg-gray-50 rounded-xl border border-gray-200 p-5 text-center">
-                    <p class="text-sm text-gray-400">Ingresa la prima total para ver el resumen financiero.</p>
+                    <p class="text-sm text-gray-400">Ingresa el PNA para ver el resumen financiero.</p>
                 </div>
             </div>
         </div>

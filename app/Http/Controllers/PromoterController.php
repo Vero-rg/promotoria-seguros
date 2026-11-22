@@ -2,15 +2,21 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Promoter;
 use App\Models\Agent;
 use App\Models\Policy;
+use App\Models\Promoter;
+use App\Models\Scheme;
+use App\Services\BonusOrchestratorService;
+use App\Services\CommissionBreakdownService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
 class PromoterController extends Controller
 {
+    public function __construct(private CommissionBreakdownService $commissions) {}
+
     public function index(Request $request)
     {
         $search = $request->query('search');
@@ -33,12 +39,11 @@ class PromoterController extends Controller
             }
         }
 
-        if (!$type || $type === 'promoter') {
+        if (! $type || $type === 'promoter') {
             $promoters = Promoter::with('agents')
                 ->when($search, function ($query, $search) use ($promoterIdSearch) {
                     $query->where(function ($q) use ($search, $promoterIdSearch) {
-                        $q->where('name', 'like', "%{$search}%")
-                          ;
+                        $q->where('name', 'like', "%{$search}%");
                         if ($promoterIdSearch) {
                             $q->orWhere('id', $promoterIdSearch);
                         } elseif (is_numeric($search)) {
@@ -56,18 +61,18 @@ class PromoterController extends Controller
                 ->get()
                 ->map(function ($item) {
                     $item->type = 'promoter';
-                    $item->uid = 'promoter_' . $item->id;
-                    $item->display_id = 'P' . $item->id;
+                    $item->uid = 'promoter_'.$item->id;
+                    $item->display_id = 'P'.$item->id;
+
                     return $item;
                 });
         }
 
-        if (!$type || $type === 'agent') {
+        if (! $type || $type === 'agent') {
             $agents = Agent::with('promoter')
                 ->when($search, function ($query, $search) use ($agentIdSearch) {
                     $query->where(function ($q) use ($search, $agentIdSearch) {
-                        $q->where('name', 'like', "%{$search}%")
-                          ;
+                        $q->where('name', 'like', "%{$search}%");
                         if ($agentIdSearch) {
                             $q->orWhere('id', $agentIdSearch);
                         } elseif (is_numeric($search)) {
@@ -85,8 +90,9 @@ class PromoterController extends Controller
                 ->get()
                 ->map(function ($item) {
                     $item->type = 'agent';
-                    $item->uid = 'agent_' . $item->id;
-                    $item->display_id = 'A' . $item->id;
+                    $item->uid = 'agent_'.$item->id;
+                    $item->display_id = 'A'.$item->id;
+
                     return $item;
                 });
         }
@@ -101,14 +107,14 @@ class PromoterController extends Controller
                 'type' => $type,
                 'date' => $date,
                 'status' => $status,
-            ]
+            ],
         ]);
     }
 
     public function create()
     {
         return Inertia::render('Directory/Create', [
-            'promoters' => Promoter::orderBy('name')->get()
+            'promoters' => Promoter::orderBy('name')->get(),
         ]);
     }
 
@@ -125,7 +131,7 @@ class PromoterController extends Controller
         }
 
         Promoter::create($validated);
-        
+
         return redirect()->route('directorio')->with('success', 'Promotor registrado correctamente.');
     }
 
@@ -165,10 +171,10 @@ class PromoterController extends Controller
         // ─── Esquemas de Bono para Promotores (Orquestador Strategy) ────
         //    El orquestador expande automáticamente el periodo para bonos
         //    trimestrales/anuales según la frecuencia de cada esquema.
-        $bonusOrchestrator = app(\App\Services\BonusOrchestratorService::class);
+        $bonusOrchestrator = app(BonusOrchestratorService::class);
 
-        $visualStart = \Carbon\Carbon::parse($startDate);
-        $visualEnd   = \Carbon\Carbon::parse($endDate);
+        $visualStart = Carbon::parse($startDate);
+        $visualEnd = Carbon::parse($endDate);
 
         $orchestratorResult = $bonusOrchestrator->calculateAll(
             user: $promoter,
@@ -176,103 +182,59 @@ class PromoterController extends Controller
             periodEnd: $visualEnd,
             visualRangeStart: $visualStart,
             visualRangeEnd: $visualEnd,
+            monthlyView: true,
         );
 
         $bonusesProgress = $bonusOrchestrator->toFrontendFormat($orchestratorResult);
 
         // 4. Bonos Alcanzados
-        $bonusesAchieved = count(array_filter($bonusesProgress, fn($b) => $b['unlocked'] ?? false));
+        $bonusesAchieved = count(array_filter($bonusesProgress, fn ($b) => $b['unlocked'] ?? false));
         $bonusesTotal = count($bonusesProgress);
 
-        // ─── Comisiones del Promotor (basado en esquema de comisión activo) ────
-        //     Se calcula per-policy con la fórmula secuencial ISR → facturación
-        $commissionScheme = \App\Models\Scheme::with(['versions.tiers'])
-            ->where('type', 'commission')
+        // ─── Comisiones del Promotor (per-policy) ────
+        //     Cada comisión descuenta ISR → impuesto cedular → facturación
+        $commissionSchemeName = Scheme::where('type', 'commission')
             ->where('is_active', true)
             ->whereIn('target', ['promoter', 'both'])
-            ->first();
+            ->value('name');
 
         $commissionsByAgent = [];
-        $totalGross        = 0;
-        $totalIsr          = 0;
-        $totalBilling      = 0;
-        $totalNet          = 0;
 
-        if ($commissionScheme) {
-            $latestVersion = $commissionScheme->versions->sortByDesc('starts_at')->first();
+        foreach ($agents as $agent) {
+            $breakdown = $this->commissions->summarize($agent->policies, CommissionBreakdownService::ROLE_PROMOTER);
 
-            if ($latestVersion && $latestVersion->tiers->isNotEmpty()) {
-                foreach ($agents as $agent) {
-                    $agentGross   = 0;
-                    $agentIsr     = 0;
-                    $agentBilling = 0;
-                    $agentNet     = 0;
-                    $agentPolicies = [];
-
-                    foreach ($agent->policies as $policy) {
-                        // Solo pólizas Pagadas generan comisión para el promotor
-                        if ($policy->status !== Policy::STATUS_PAGADA) continue;
-
-                        $productType = $policy->product_type;
-                        $tier = $latestVersion->tiers->first(function ($t) use ($productType) {
-                            $conds = $t->conditions ?? [];
-                            return ($conds['product_type'] ?? '') === $productType;
-                        });
-
-                        $percentage = $tier ? (float) ($tier->promoter_percentage ?? 0) : 0;
-                        $gross = (float) $policy->premium_amount * ($percentage / 100);
-
-                        // Per-policy sequential ISR → billing (matching Policy::promoterNetAmount)
-                        $isrPct  = (float) ($policy->isr_retention ?? 0);
-                        $billPct = (float) ($policy->billing_retention ?? 0);
-                        $isr     = $gross * ($isrPct / 100);
-                        $afterIsr = $gross - $isr;
-                        $billing = $afterIsr * ($billPct / 100);
-                        $net     = $afterIsr - $billing;
-
-                        $agentGross   += $gross;
-                        $agentIsr     += $isr;
-                        $agentBilling += $billing;
-                        $agentNet     += $net;
-
-                        $agentPolicies[] = [
-                            'id' => $policy->id,
-                            'client_name' => $policy->client_name,
-                            'product_type' => $productType,
-                            'premium_amount' => (float) $policy->premium_amount,
-                            'percentage' => $percentage,
-                            'commission' => round($gross, 2),
-                            'status' => $policy->status,
-                        ];
-                    }
-
-                    if ($agentGross > 0 || $agent->policies->isNotEmpty()) {
-                        $commissionsByAgent[] = [
-                            'agent_id' => $agent->id,
-                            'agent_name' => $agent->name,
-                            'photo' => $agent->photo,
-                            'total_gross'   => round($agentGross, 2),
-                            'total_isr'     => round($agentIsr, 2),
-                            'total_billing' => round($agentBilling, 2),
-                            'total_net'     => round($agentNet, 2),
-                            'policies_count' => $agent->policies->count(),
-                            'policies' => $agentPolicies,
-                        ];
-                        $totalGross   += $agentGross;
-                        $totalIsr     += $agentIsr;
-                        $totalBilling += $agentBilling;
-                        $totalNet     += $agentNet;
-                    }
-                }
+            if ($breakdown['gross'] <= 0 && $agent->policies->isEmpty()) {
+                continue;
             }
+
+            $commissionsByAgent[] = [
+                'agent_id' => $agent->id,
+                'agent_name' => $agent->name,
+                'photo' => $agent->photo,
+                'total_gross' => $breakdown['gross'],
+                'total_isr' => $breakdown['isr'],
+                'total_cedular' => $breakdown['cedular'],
+                'total_billing' => $breakdown['billing'],
+                'total_net' => $breakdown['net'],
+                'policies_count' => $agent->policies->count(),
+                'policies' => $agent->policies->map(function ($policy) {
+                    return [
+                        'id' => $policy->id,
+                        'client_name' => $policy->client_name,
+                        'product_type' => $policy->product_type,
+                        'premium_amount' => (float) $policy->premium_amount,
+                        'percentage' => $this->commissions->percentageFor($policy, CommissionBreakdownService::ROLE_PROMOTER),
+                        'commission' => $this->commissions->grossCommission($policy, CommissionBreakdownService::ROLE_PROMOTER),
+                        'status' => $policy->status,
+                    ];
+                })->values(),
+            ];
         }
 
-        $teamCommissionBreakdown = [
-            'gross'   => round($totalGross, 2),
-            'isr'     => round($totalIsr, 2),
-            'billing' => round($totalBilling, 2),
-            'net'     => round($totalNet, 2),
-        ];
+        $teamCommissionBreakdown = $this->commissions->summarize(
+            $agents->flatMap(fn ($agent) => $agent->policies),
+            CommissionBreakdownService::ROLE_PROMOTER
+        );
 
         // ─── Datos por Agente para el Directorio Operativo ─────────────────
         $agentsData = $agents->map(function ($agent) {
@@ -281,7 +243,7 @@ class PromoterController extends Controller
             $minPoliciesForBonus = 1;
 
             // Buscar si algún bono activo de tipo desarrollo exige producto específico
-            $activeBonusSchemes = \App\Models\Scheme::with(['versions.tiers'])
+            $activeBonusSchemes = Scheme::with(['versions.tiers'])
                 ->where('type', 'bonus')
                 ->where('target', 'promoter')
                 ->where('is_active', true)
@@ -322,6 +284,7 @@ class PromoterController extends Controller
                         'issue_date' => $p->issue_date->toDateString(),
                         'premium_amount' => (float) $p->premium_amount,
                         'commission_amount' => (float) $p->commission_amount,
+                        'resolved_commission_amount' => $this->commissions->grossCommission($p, CommissionBreakdownService::ROLE_PROMOTER),
                         'status' => $p->status,
                     ];
                 })->values(),
@@ -344,7 +307,7 @@ class PromoterController extends Controller
                 'agents' => $agentsData,
                 'commissions' => $commissionsByAgent,
                 'team_commission_breakdown' => $teamCommissionBreakdown,
-                'commission_scheme_name' => $commissionScheme?->name ?? null,
+                'commission_scheme_name' => $commissionSchemeName,
             ],
             'filters' => [
                 'start_date' => $startDate,
@@ -358,7 +321,7 @@ class PromoterController extends Controller
         return Inertia::render('Directory/Edit', [
             'entity' => $promoter,
             'type' => 'promoter',
-            'promoters' => Promoter::orderBy('name')->get()
+            'promoters' => Promoter::orderBy('name')->get(),
         ]);
     }
 
@@ -379,12 +342,14 @@ class PromoterController extends Controller
         }
 
         $promoter->update($validated);
+
         return redirect()->route('directorio')->with('success', 'Promotor actualizado correctamente.');
     }
 
     public function destroy(Promoter $promoter)
     {
         $promoter->delete();
+
         return redirect()->route('directorio')->with('success', 'Promotor eliminado correctamente.');
     }
 }
