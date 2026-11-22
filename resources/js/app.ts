@@ -1,15 +1,14 @@
 import '../css/app.css';
 
 import { createInertiaApp } from '@inertiajs/vue3';
+import ElementPlus from 'element-plus';
+import 'element-plus/dist/index.css';
+import locale from 'element-plus/dist/locale/es.mjs';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import type { DefineComponent } from 'vue';
 import { createApp, h } from 'vue';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
-import { initializeTheme } from './composables/useAppearance';
-import ElementPlus from 'element-plus';
-import 'element-plus/dist/index.css';
-import locale from 'element-plus/dist/locale/es.mjs';
-import 'element-plus/theme-chalk/dark/css-vars.css'
+import { initializeTheme } from './composables/theme';
 
 // Extend ImportMeta interface for Vite...
 declare module 'vite/client' {
@@ -33,7 +32,7 @@ createInertiaApp({
         createApp({ render: () => h(App, props) })
             .use(plugin)
             .use(ZiggyVue)
-            .use(ElementPlus, {locale})
+            .use(ElementPlus, { locale })
             .mount(el);
     },
     progress: {
@@ -41,5 +40,5 @@ createInertiaApp({
     },
 });
 
-// This will set light / dark mode on page load...
+// This will force light mode on page load...
 initializeTheme();

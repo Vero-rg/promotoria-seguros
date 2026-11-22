@@ -306,10 +306,32 @@ class PolicyTest extends TestCase
             'policy_number'  => '123456',
             'issue_date'     => '2026-01-15',
             'premium_amount' => 50_000,
+            'isr_retention'  => 10,
             'payment_method' => 'Efectivo',
         ]);
 
         $response->assertSessionHasErrors('billing_retention');
+        $this->assertDatabaseCount('policies', 0);
+    }
+
+    /**
+     * 🟡 La retención de ISR es obligatoria al registrar una póliza.
+     */
+    public function test_isr_retention_is_required_when_storing_a_policy(): void
+    {
+        $user = User::factory()->create();
+        $agent = Agent::factory()->create();
+
+        $response = $this->actingAs($user)->post(route('policies.store'), [
+            'agent_id'          => $agent->id,
+            'policy_number'     => '123456',
+            'issue_date'        => '2026-01-15',
+            'premium_amount'    => 50_000,
+            'billing_retention' => 5,
+            'payment_method'    => 'Efectivo',
+        ]);
+
+        $response->assertSessionHasErrors('isr_retention');
         $this->assertDatabaseCount('policies', 0);
     }
 
@@ -326,6 +348,7 @@ class PolicyTest extends TestCase
             'policy_number'     => '123456',
             'issue_date'        => '2026-01-15',
             'premium_amount'    => 50_000,
+            'isr_retention'     => 10,
             'billing_retention' => 5,
         ]);
 
@@ -334,9 +357,9 @@ class PolicyTest extends TestCase
     }
 
     /**
-     * 🟡 Al registrar una póliza, el impuesto cedular toma el 5% por defecto.
+     * 🟡 Al registrar una póliza sin impuesto cedular, se guarda en 0.
      */
-    public function test_store_policy_defaults_cedular_tax_to_five_percent(): void
+    public function test_store_policy_defaults_cedular_tax_to_zero(): void
     {
         $user = User::factory()->create();
         $agent = Agent::factory()->create();
@@ -347,6 +370,7 @@ class PolicyTest extends TestCase
             'client_name'       => 'Cliente de prueba',
             'issue_date'        => '2026-01-15',
             'premium_amount'    => 50_000,
+            'isr_retention'     => 10,
             'billing_retention' => 4,
             'product_type'      => 'METALIFE',
             'payment_method'    => 'Automático',
@@ -354,9 +378,58 @@ class PolicyTest extends TestCase
 
         $policy = Policy::firstOrFail();
 
-        $this->assertEquals('5.00', $policy->cedular_tax);
+        $this->assertEquals('0.00', $policy->cedular_tax);
+        $this->assertEquals('10.00', $policy->isr_retention);
         $this->assertEquals('4.00', $policy->billing_retention);
         $this->assertEquals('METALIFE', $policy->product_type);
         $this->assertEquals('Automático', $policy->payment_method);
+    }
+
+    /**
+     * 🟡 Al registrar una póliza de un agente con impuesto cedular activado,
+     *    el impuesto cedular se guarda en 5 cuando no se captura.
+     */
+    public function test_store_policy_defaults_cedular_tax_to_five_for_agent_with_flag_enabled(): void
+    {
+        $user = User::factory()->create();
+        $agent = Agent::factory()->create(['cedular_tax_enabled' => true]);
+
+        $this->actingAs($user)->post(route('policies.store'), [
+            'agent_id'          => $agent->id,
+            'policy_number'     => '987654322',
+            'client_name'       => 'Cliente de prueba',
+            'issue_date'        => '2026-01-15',
+            'premium_amount'    => 50_000,
+            'isr_retention'     => 10,
+            'billing_retention' => 4,
+            'product_type'      => 'METALIFE',
+            'payment_method'    => 'Automático',
+        ])->assertRedirect(route('policies.index'));
+
+        $this->assertEquals('5.00', Policy::firstOrFail()->cedular_tax);
+    }
+
+    /**
+     * 🟡 El valor capturado explícitamente tiene prioridad sobre el default del agente.
+     */
+    public function test_store_policy_keeps_explicit_cedular_tax_for_agent_with_flag_enabled(): void
+    {
+        $user = User::factory()->create();
+        $agent = Agent::factory()->create(['cedular_tax_enabled' => true]);
+
+        $this->actingAs($user)->post(route('policies.store'), [
+            'agent_id'          => $agent->id,
+            'policy_number'     => '987654323',
+            'client_name'       => 'Cliente de prueba',
+            'issue_date'        => '2026-01-15',
+            'premium_amount'    => 50_000,
+            'isr_retention'     => 10,
+            'cedular_tax'       => 0,
+            'billing_retention' => 4,
+            'product_type'      => 'METALIFE',
+            'payment_method'    => 'Automático',
+        ])->assertRedirect(route('policies.index'));
+
+        $this->assertEquals('0.00', Policy::firstOrFail()->cedular_tax);
     }
 }

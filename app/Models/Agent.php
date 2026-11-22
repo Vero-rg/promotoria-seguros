@@ -16,11 +16,13 @@ class Agent extends Model
         'photo',
         'is_active',
         'deactivated_at',
+        'cedular_tax_enabled',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'deactivated_at' => 'datetime',
+        'cedular_tax_enabled' => 'boolean',
     ];
 
     // Relación: Un agente pertenece a un promotor

@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { router } from '@inertiajs/vue3';
-import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { DollarSign, FileText, Award, Users } from 'lucide-vue-next';
+import { Head, router } from '@inertiajs/vue3';
+import { Award, DollarSign, FileText, Users } from 'lucide-vue-next';
+import { ref } from 'vue';
 import GlobalKpi from './Partials/GlobalKpi.vue';
 import SmartAlerts from './Partials/SmartAlerts.vue';
 import TopPerformers from './Partials/TopPerformers.vue';
@@ -59,7 +58,8 @@ const props = defineProps<{
         bonus_details: Array<{ name: string; amount: number; progress_label: string }>;
         total_commission: number;
     }>;
-    trends?: Array<{ date: string; count: number; label: string }>;
+    trends?: Array<{ date: string; label: string; count: number; premium: number }>;
+    trend_grouping?: 'day' | 'month';
 }>();
 
 const activeFilter = ref(props.filter || 'month');
@@ -67,15 +67,19 @@ const showCustomRange = ref(props.filter === 'custom');
 const customRange = ref([props.start_date || '', props.end_date || '']);
 
 const fetchDashboard = () => {
-    router.get(route('dashboard'), {
-        filter: activeFilter.value,
-        start_date: customRange.value[0] || undefined,
-        end_date: customRange.value[1] || undefined,
-    }, {
-        preserveState: true,
-        preserveScroll: true,
-        replace: true,
-    });
+    router.get(
+        route('dashboard'),
+        {
+            filter: activeFilter.value,
+            start_date: customRange.value[0] || undefined,
+            end_date: customRange.value[1] || undefined,
+        },
+        {
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
+        },
+    );
 };
 
 const setFilter = (f: string) => {
@@ -90,27 +94,24 @@ const onCustomRangeChange = () => {
     }
 };
 
-const formatCurrency = (v: number) =>
-    new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(v);
+const formatCurrency = (v: number) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(v);
 
-const formatNumber = (v: number) =>
-    new Intl.NumberFormat('es-MX').format(v);
+const formatNumber = (v: number) => new Intl.NumberFormat('es-MX').format(v);
 </script>
 
 <template>
     <AppLayout>
         <Head title="Dashboard" />
 
-        <div class="p-4 sm:p-6 lg:p-8 max-w-full space-y-6">
-
+        <div class="max-w-full space-y-6 p-4 sm:p-6 lg:p-8">
             <!-- ========== ENCABEZADO + FILTROS ========== -->
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+            <div class="mb-2 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 class="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-                    <p class="text-sm text-gray-400 mt-0.5">Resumen general de la operación</p>
+                    <h1 class="text-2xl font-bold tracking-tight text-gray-900">Dashboard</h1>
+                    <p class="mt-0.5 text-sm text-gray-400">Resumen general de la operación</p>
                 </div>
 
-                <div class="flex items-center p-0.5 bg-gray-100/60 border border-gray-200/50 rounded-xl">
+                <div class="flex items-center rounded-xl border border-gray-200/50 bg-gray-100/60 p-0.5">
                     <button
                         v-for="f in [
                             { key: 'today', label: 'Hoy' },
@@ -124,14 +125,20 @@ const formatNumber = (v: number) =>
                         ]"
                         :key="f.key"
                         @click="setFilter(f.key)"
-                        class="px-3.5 py-1.5 text-[13px] font-medium rounded-lg transition-all duration-200 ease-out"
-                       :class="activeFilter === f.key ? 'bg-white text-gray-900 shadow-sm border border-gray-200/40' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50/50'"
-                    >{{ f.label }}</button>
+                        class="rounded-lg px-3.5 py-1.5 text-[13px] font-medium transition-all duration-200 ease-out"
+                        :class="
+                            activeFilter === f.key
+                                ? 'border border-gray-200/40 bg-white text-gray-900 shadow-sm'
+                                : 'text-gray-500 hover:bg-gray-50/50 hover:text-gray-800'
+                        "
+                    >
+                        {{ f.label }}
+                    </button>
                 </div>
             </div>
 
-            <div v-if="showCustomRange" class="flex items-center space-x-3 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-                <span class="text-sm text-gray-500 font-medium">Rango:</span>
+            <div v-if="showCustomRange" class="flex items-center space-x-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+                <span class="text-sm font-medium text-gray-500">Rango:</span>
                 <el-date-picker
                     v-model="customRange"
                     type="daterange"
@@ -140,13 +147,13 @@ const formatNumber = (v: number) =>
                     end-placeholder="Fin"
                     format="DD/MM/YYYY"
                     value-format="YYYY-MM-DD"
-                    class="max-w-xs !border-gray-200 !rounded-lg"
+                    class="max-w-xs !rounded-lg !border-gray-200"
                     @change="onCustomRangeChange"
                 />
             </div>
 
             <!-- ========== KPIs GLOBALES ========== -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <!-- Ingreso Neto -->
                 <GlobalKpi
                     label="Ingreso Neto"
@@ -157,8 +164,8 @@ const formatNumber = (v: number) =>
                     icon-color-class="text-emerald-600"
                     :growth="kpis?.income_growth"
                     :detail="[
-                        { label: 'PNA (Prima Pagada)', current: formatCurrency(kpis?.total_pna || 0) },
-                        { label: 'PCA (Prima Computable)', current: formatCurrency(kpis?.total_pca || 0) },
+                        { label: 'PNA (Prima neta acumulada)', current: formatCurrency(kpis?.total_pna || 0) },
+                        { label: 'PCA (Prima computable acumulada)', current: formatCurrency(kpis?.total_pca || 0) },
                     ]"
                 />
                 <!-- Volumen de Pólizas -->
@@ -209,14 +216,10 @@ const formatNumber = (v: number) =>
             <SmartAlerts :alerts="alerts || []" />
 
             <!-- ========== RENDIMIENTO (Top 5) ========== -->
-            <TopPerformers
-                :top-agents="top_agents || []"
-                :top-promoters="top_promoters || []"
-            />
+            <TopPerformers :top-agents="top_agents || []" :top-promoters="top_promoters || []" />
 
             <!-- ========== TENDENCIAS ========== -->
-            <TrendsChart :data="trends || []" />
-
+            <TrendsChart :data="trends || []" :grouping="trend_grouping" />
         </div>
     </AppLayout>
 </template>

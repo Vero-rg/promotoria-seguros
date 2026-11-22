@@ -17,6 +17,16 @@ class UpdatePolicyRequest extends FormRequest
     }
 
     /**
+     * The cedular tax is optional: when omitted it is stored as 0 on update.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->input('cedular_tax') === null || $this->input('cedular_tax') === '') {
+            $this->merge(['cedular_tax' => 0]);
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      */
     public function rules(): array
@@ -33,7 +43,7 @@ class UpdatePolicyRequest extends FormRequest
             'commission_amount' => 'nullable|numeric',
             'promoter_commission_percentage' => 'nullable|numeric',
             'promoter_commission_amount' => 'nullable|numeric',
-            'isr_retention' => 'nullable|numeric|min:0|max:100',
+            'isr_retention' => 'required|numeric|min:0|max:100',
             'cedular_tax' => 'nullable|numeric|min:0|max:100',
             'billing_retention' => 'required|numeric|min:0|max:100',
             'status' => 'sometimes|string',

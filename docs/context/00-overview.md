@@ -88,7 +88,7 @@ promotoria-seguros/
 │   │   │   │   └── Bonuses/
 │   │   │   └── settings/
 │   │   ├── components/         # Reusable Vue components
-│   │   ├── composables/        # Vue composables (e.g., useAppearance)
+│   │   ├── composables/        # Vue composables (e.g., useInitials)
 │   │   ├── layouts/            # Page layouts
 │   │   ├── lib/                # Utility libraries
 │   │   └── types/              # TypeScript type definitions
@@ -96,7 +96,7 @@ promotoria-seguros/
 ├── routes/
 │   ├── web.php                 # Main web routes (Inertia)
 │   ├── auth.php                # Authentication routes
-│   └── settings.php            # Profile/password/appearance routes
+│   └── settings.php            # Profile/password routes
 ├── storage/                    # Logs, cache, file uploads
 ├── tests/                      # Pest/PHPUnit tests
 └── vendor/                     # Composer dependencies
@@ -126,7 +126,7 @@ promotoria-seguros/
 - **Inertia.js** handles all server-client state synchronization.
 - No Vuex/Pinia — page props are passed from Laravel controllers to Vue pages.
 - Form state is managed locally in Vue components via `useForm` (Inertia).
-- Theme (light/dark) persisted via `localStorage` through `useAppearance` composable.
+- Theme is light-only; `theme.ts` strips the `dark` class on boot.
 
 ### API Style
 - **No REST/JSON API.** All communication is server-rendered pages via Inertia.js.
@@ -176,7 +176,7 @@ User (system admin)
 | IRP | Índice de Retención de Pólizas | Policy retention index = (active policies / total policies) × 100. |
 | ISR | Impuesto Sobre la Renta | Income tax retention (default 10%). |
 | Facturación | Billing | Billing/factoring cost retention (default 5%). |
-| Net Income | Ingreso Neto | Premium minus commission costs (ISR + billing deducted). |
+| Net Income | Ingreso Neto | PNA minus the net commissions paid to agents and promoters (after ISR, impuesto cedular and billing). |
 | Scheme | Esquema | A commission or bonus configuration with versions and tiers. |
 | Tier / Range | Banda / Rango | A conditional bracket within a scheme version. |
 | Template Key | template_key | Immutable machine identifier for bonus type (e.g., `connection`). |

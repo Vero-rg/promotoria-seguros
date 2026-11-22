@@ -113,10 +113,10 @@ project-root/
 │   │   │   ├── Scheme/         # Commission & Bonus scheme views
 │   │   │   │   ├── Commissions/
 │   │   │   │   └── Bonuses/
-│   │   │   └── settings/       # Profile, password, appearance
+│   │   │   └── settings/       # Profile, password
 │   │   ├── Components/         # Reusable Vue components (shadcn-vue UI)
 │   │   │   └── ui/             # shadcn-vue UI primitives
-│   │   ├── composables/        # Vue composables (e.g., useAppearance)
+│   │   ├── composables/        # Vue composables (e.g., useInitials)
 │   │   ├── layouts/            # Page layout components
 │   │   ├── lib/                # Utility libraries
 │   │   └── types/              # TypeScript type definitions
@@ -250,7 +250,7 @@ require __DIR__.'/web/settings.php';
 | Database columns | snake_case | `premium_amount`, `deactivated_at` |
 | Migrations | timestamp + snake_case description | `2026_05_20_194148_create_policies_table.php` |
 | Vue components | PascalCase | `PolicyForm.vue` |
-| Vue composables | camelCase, `use` prefix | `useAppearance` |
+| Vue composables | camelCase, `use` prefix | `useInitials` |
 | TypeScript types | PascalCase | `Policy`, `BonusResult` |
 | Named routes | kebab-case, dot-separated hierarchy | `esquemas.bonos.crear` |
 | Route files | camelCase, module name | `routes/web/policies.php` |
@@ -276,7 +276,7 @@ require __DIR__.'/web/settings.php';
 | `bootstrap/providers.php` | Service provider registration |
 | `routes/web.php` | Main route file — loads `auth.php`, `settings.php`, and defines all domain routes |
 | `routes/auth.php` | Authentication routes (guest + auth) |
-| `routes/settings.php` | Profile, password, appearance routes |
+| `routes/settings.php` | Profile and password routes |
 | `config/app.php` | App config (name, env, timezone: `America/Mexico_City`) |
 | `config/auth.php` | Auth guards (`web`/session) and providers (`users`/eloquent) |
 | `config/database.php` | DB config (default: sqlite, supports MySQL) |

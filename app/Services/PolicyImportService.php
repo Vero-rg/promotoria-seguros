@@ -36,6 +36,7 @@ class PolicyImportService
         'agent_name',
         'issue_date',
         'premium_amount',
+        'isr_retention',
         'billing_retention',
     ];
 
@@ -133,8 +134,14 @@ class PolicyImportService
                 $rowErrors[] = 'el costo de facturación es obligatorio.';
             }
 
-            $isrRetention = $this->parseNumber($data['isr_retention'] ?? null) ?? 10.0;
-            $cedularTax = $this->parseNumber($data['cedular_tax'] ?? null) ?? 5.0;
+            $isrRetention = $this->parseNumber($data['isr_retention'] ?? null);
+            if ($isrRetention === null) {
+                $rowErrors[] = 'la retención de ISR es obligatoria.';
+            }
+
+            // The cedular tax is optional: default to 5% when the agent has it enabled, otherwise 0
+            $cedularTax = $this->parseNumber($data['cedular_tax'] ?? null)
+                ?? ($agent?->cedular_tax_enabled ? 5.0 : 0.0);
 
             $status = $this->parseStatus($data['status'] ?? null);
             if ($status === null) {

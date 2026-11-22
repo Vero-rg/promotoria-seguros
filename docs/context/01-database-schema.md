@@ -93,6 +93,7 @@ Individual sales agents. Each belongs to one promoter.
 | `photo` | VARCHAR(255) | Nullable, path in `storage/app/public/photos/` |
 | `is_active` | BOOLEAN | Default `true` |
 | `deactivated_at` | TIMESTAMP | Nullable. Set when agent is deactivated. Used by `activeInPeriod` scope. |
+| `cedular_tax_enabled` | BOOLEAN | Default `false`. When enabled, new policies for this agent default `cedular_tax` to 5%. |
 | `created_at` | TIMESTAMP | |
 | `updated_at` | TIMESTAMP | |
 
@@ -122,7 +123,7 @@ Insurance policies sold by agents. This is the transactional heart of the system
 | `promoter_commission_percentage` | DECIMAL(5,2) | Promoter override commission %. Default 0. |
 | `promoter_commission_amount` | DECIMAL(12,2) | Promoter override commission amount. Default 0. |
 | `isr_retention` | DECIMAL(5,2) | ISR (tax) retention percentage. Default 10%. |
-| `cedular_tax` | DECIMAL(5,2) | Impuesto cedular percentage. Default 5%. |
+| `cedular_tax` | DECIMAL(5,2) | Impuesto cedular percentage. Default 0%. |
 | `billing_retention` | DECIMAL(5,2) | Billing/factoring cost percentage. Nullable, no default (required on create/edit). |
 | `status` | VARCHAR(255) | One of: `Activa`, `No tomada`, `Pagada`. Default `Activa`. |
 | `product_type` | VARCHAR(255) | Nullable. Product: `METALIFE`, `PERFECTLIFE`, `PRIMORDIAL`. |
@@ -357,6 +358,7 @@ erDiagram
 | `2026_05_30_000001` | Adds `agent_automatic_percentage` to `scheme_tiers` |
 | `2026_05_30_000002` | Adds `template_key` to `schemes` |
 | `2026_05_31_000001` | Adds `deactivated_at` to `agents` |
+| `2026_11_22_000002` | Adds `cedular_tax_enabled` to `agents` |
 
 > **Note:** Migration `2026_05_28_000002` reversed the approach of linking policies to schemes. The current model computes commissions dynamically from the active commission scheme rather than storing the scheme reference on each policy.
 

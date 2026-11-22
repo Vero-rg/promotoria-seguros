@@ -1,7 +1,7 @@
 # 08 — Module: User Settings
 
 ## Business Purpose
-Allows authenticated users to manage their profile information, change their password, and toggle the application appearance (light/dark mode).
+Allows authenticated users to manage their profile information and change their password. The application theme is fixed to light mode.
 
 ## Key Files
 
@@ -12,8 +12,7 @@ Allows authenticated users to manage their profile information, change their pas
 | `app/Http/Controllers/Settings/PasswordController.php` | Password change |
 | `resources/js/Pages/settings/Profile.vue` | Profile edit form |
 | `resources/js/Pages/settings/Password.vue` | Password change form |
-| `resources/js/Pages/settings/Appearance.vue` | Theme toggle (inline render) |
-| `resources/js/composables/useAppearance.ts` | Theme persistence logic |
+| `resources/js/composables/theme.ts` | Forces the light theme on boot |
 
 ---
 
@@ -27,7 +26,6 @@ Allows authenticated users to manage their profile information, change their pas
 | DELETE | `/settings/profile` | `ProfileController@destroy` | `profile.destroy` |
 | GET | `/settings/password` | `PasswordController@edit` | `password.edit` |
 | PUT | `/settings/password` | `PasswordController@update` | `password.update` |
-| GET | `/settings/appearance` | Inline `Inertia::render('settings/Appearance')` | `appearance` |
 
 All routes are protected by `auth` middleware.
 
@@ -58,13 +56,13 @@ All routes are protected by `auth` middleware.
 
 ---
 
-## Appearance (Theme)
+## Theme
 
 ### Implementation
-- **Storage:** `localStorage` via `useAppearance` composable
-- **Options:** Light, Dark, System
-- **Initialization:** `initializeTheme()` runs on app bootstrap, reads stored preference or system preference
-- **No server-side persistence:** Theme preference is entirely client-side
+- **Light-only:** The project intentionally ignores the operating system dark mode.
+- **Initialization:** `initializeTheme()` (`resources/js/composables/theme.ts`) runs on app bootstrap and removes the `dark` class from `<html>`.
+- **CSS guard:** `color-scheme: light` is declared on `:root` and in the `<meta name="color-scheme">` tag to keep native controls light.
+- **No user preference:** There is no theme switcher; the `dark:` Tailwind variants and `.dark` CSS variables never apply.
 
 ---
 
@@ -75,4 +73,4 @@ All routes are protected by `auth` middleware.
 1. **No profile photo:** The User model lacks a `photo` field, unlike Promoter and Agent. Users cannot set an avatar.
 2. **Account deletion is permanent:** No soft delete. All user data is hard-deleted.
 3. **No email change verification flow:** When email changes, `email_verified_at` is simply set to null. There's no automatic re-verification email sent. The user must manually request a new verification email.
-4. **Theme toggle is basic:** Three options (light/dark/system). No custom theme colors or branding.
+4. **No custom theming:** The theme is hardcoded to light. Supporting dark mode again would require restoring a theme switcher and honoring a stored preference.
