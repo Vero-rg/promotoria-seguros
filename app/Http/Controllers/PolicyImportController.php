@@ -59,7 +59,7 @@ class PolicyImportController extends Controller
             '15/07/2026',
             90000,
             10,
-            5,
+            0,
             5,
             'Activa',
             'Efectivo',

@@ -24,22 +24,22 @@ Query params: `filter` (today, month, year, q1-q4, custom), `start_date`, `end_d
 
 ### 1. Net Income (Ingreso Neto)
 
-The Dashboard calls `$p->netAmount()` which is defined in `Policy.php`:
+**Ingreso Neto = PNA − comisiones netas (agente + promotor).**
+
+Commissions are resolved through `App\Services\CommissionBreakdownService` for every `Pagada` policy in the period:
+
+- Gross commission = the amount stored on the policy when it is greater than 0; otherwise `pcaAmount() × percentage / 100`, where the percentage is the one stored on the policy or, if it is 0, the active commission scheme (`ProductCommissionService::map()`).
+- Deductions are sequential: **ISR → impuesto cedular → costo de facturación**.
 
 ```php
-// Policy::netAmount() — used by Dashboard for Net Income KPI
-public function netAmount(): float
-{
-    if ($this->status !== self::STATUS_PAGADA) {
-        return 0.0;
-    }
-    return round($this->agentNetAmount() + $this->promoterNetAmount(), 2);
-}
+$currentCommissions = $this->commissions->summarize($policies, CommissionBreakdownService::ROLE_AGENT);
+$currentPromoterCommissions = $this->commissions->summarize($policies, CommissionBreakdownService::ROLE_PROMOTER);
+$currentNetCommissions = $currentCommissions['net'] + $currentPromoterCommissions['net'];
+
+$currentNetIncome = round($totalPNA - $currentNetCommissions, 2);
 ```
 
-**This means Net Income = agent net commission + promoter net commission** (after each has ISR and billing deducted sequentially). It does NOT involve `premium_amount`.
-
-Dashboard code: `$currentNetIncome = $policies->sum(fn($p) => $p->netAmount());`
+`Policy::netAmount()` still returns the sum of both net commissions for a single policy, but the Dashboard KPI no longer uses it directly.
 
 ### 2. PNA (Prima Neta Acumulada)
 
@@ -50,10 +50,12 @@ $totalPNA = round($policies->sum('premium_amount'), 2);
 ### 3. PCA (Prima Computable Acumulada)
 
 ```php
-$totalPCA = round($policies->sum(fn($p) => max(0, (float) $p->premium_amount - 1350)), 2);
+$totalPCA = round($policies->sum(fn ($p) => $p->pcaAmount()), 2);
 ```
 
-Note: The Dashboard computes PCA as `max(0, premium - 1350)` per policy, BUT the bonus calculators (e.g., `AgentFirstYearProductionCalculator`) compute PCA as raw `premium_amount` sum without the $1,350 deduction. This is a discrepancy — verify which is correct for each context.
+`Policy::pcaAmount()` = `max(0, premium_amount − 1,350)` per policy. The Dashboard card shows PNA and PCA as the detail of the Ingreso Neto card.
+
+Note: The bonus calculators (e.g., `AgentFirstYearProductionCalculator`) compute PCA as raw `premium_amount` sum without the $1,350 deduction. This is a discrepancy — verify which is correct for each context.
 
 ### 4. Policy Volume by Product
 Counts and premium totals broken down by product type:
@@ -69,6 +71,19 @@ Iterates ALL active agents with policies and ALL active promoters with team acti
 ### 6. Active Sales Force
 - Count of active promoters (`is_active = true`)
 - Count of active agents (`is_active = true`)
+
+### 7. Policy Trend (`trends` + `trend_grouping`)
+`buildTrend()` returns the paid-policy (`Pagada`) series for the selected period:
+
+- **Grouping:** `day` when the range is 62 days or less (Hoy, Mes, trimestres, rangos personalizados cortos); `month` for longer ranges (Año).
+- **Each point:** `{ date, label, count, premium }`, including buckets with zero activity so the chart always covers the whole period.
+- The frontend lets the user switch between **Pólizas** (count) and **Prima vendida** (`premium` sum), shows the period totals plus the best day/month, and opens a detail panel with that bucket's policies and premium (with its share of the period) when a column is clicked.
+
+---
+
+## Top Performers (Top 5)
+
+Both lists use the same `CommissionBreakdownService` as the KPIs, so `commission_breakdown` includes `gross`, `isr`, `cedular`, `billing` and `net`. The promoter list uses the policies of the selected period (bonus evaluation may internally expand to the scheme's frequency).
 
 ---
 
@@ -119,13 +134,13 @@ Previous period is auto-calculated as same-length period immediately before the 
 - **Policy Management** — reads policies to compute metrics
 - **Bonus Engine** — calls `BonusOrchestratorService` for projected bonuses and alerts
 - **Promoter/Agent Management** — reads active sales force count
-- **Commission Schemes** — reads `productCommissionMap` for commission alerts
+- **Commission Schemes** — `CommissionBreakdownService` + `ProductCommissionService` resolve commission percentages
 
 ## Known Limitations / Tech Debt
 1. **No caching:** Every dashboard load re-computes ALL bonuses for ALL active agents/promoters. This will not scale.
 2. **Previous period bonus estimation:** Uses a simplified `calculateProjectedBonuses()` method instead of re-running the orchestrator. This means period-over-period bonus growth is approximate.
 3. **Hardcoded product types:** METALIFE, PERFECTLIFE, PRIMORDIAL are string literals in the controller. Adding a product requires code changes.
 4. **Alert limit of 20:** Hard ceiling at 20 alerts. No prioritization beyond the iteration order (top agents by volume, then top promoters).
-5. **Promoter bonus period:** For promoter bonuses, the system fetches policies over the FULL quarter (`startOfQuarter` to `endOfQuarter`) rather than the selected visual period. This is correct for quarterly bonuses but may confuse users viewing a monthly filter.
-6. **PCA formula discrepancy:** Dashboard computes PCA as `max(0, premium - 1350)`. Bonus calculators (e.g., `AgentFirstYearProductionCalculator`) compute PCA as raw `premium_amount` sum. These are different formulas — verify which is correct.
-7. **Full source:** `DashboardController.php` is ~550 lines. See the repository file directly. The key formulas are documented above with exact source code.
+5. **Promoter bonus period:** Bonus alerts and projections load policies for the quarter, but the Top Promoters card (volume and commissions) uses the selected period.
+6. **PCA formula discrepancy:** The Dashboard computes PCA as `max(0, premium - 1,350)`. Bonus calculators (e.g., `AgentFirstYearProductionCalculator`) compute PCA as raw `premium_amount` sum. These are different formulas — verify which is correct.
+7. **Full source:** `DashboardController.php` is ~600 lines. See the repository file directly. The key formulas are documented above with exact source code.

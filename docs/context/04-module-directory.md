@@ -83,28 +83,30 @@ For each agent under the promoter:
 
 ### Commission Breakdown (Promoter view)
 
-Calculated per-agent, per-policy from the active commission scheme with full ISR/billing breakdown using the **sequential** formula (matching `Policy::promoterNetAmount()`):
+Calculated per-agent, per-policy through `App\Services\CommissionBreakdownService` (role `promoter`) with the **sequential** ISR → impuesto cedular → facturación formula:
 
 ```
-For each policy:
-    gross_i      = premium_amount × promoter_percentage / 100
+For each Pagada policy:
+    gross_i      = pcaAmount() × promoter_percentage / 100
     isr_i        = gross_i × (isr_retention / 100)
     after_isr_i  = gross_i - isr_i
-    billing_i    = after_isr_i × (billing_retention / 100)
-    net_i        = after_isr_i - billing_i           (= Policy::promoterNetAmount())
+    cedular_i    = after_isr_i × (cedular_tax / 100)
+    after_ced_i  = after_isr_i - cedular_i
+    billing_i    = after_ced_i × (billing_retention / 100)
+    net_i        = after_ced_i - billing_i
 ```
 
-Then sum per-agent and for the team total. Returns `team_commission_breakdown` (gross, isr, billing, net) and per-agent breakdown in `commissionsByAgent` (with `total_gross`, `total_isr`, `total_billing`, `total_net`).
+The gross amount is the one stored on the policy when it is greater than 0; otherwise it is `pcaAmount() × percentage`, using the percentage stored on the policy or the active commission scheme (`ProductCommissionService::map()`) when the policy has none. Then sum per-agent and for the team total. Returns `team_commission_breakdown` (gross, isr, cedular, billing, net) and per-agent breakdown in `commissionsByAgent` (with `total_gross`, `total_isr`, `total_cedular`, `total_billing`, `total_net`).
 
 ### Agent Commission Breakdown (Agent view)
 
-Same sequential formula, using `agent_percentage` from `getProductCommissionMap()`. Returns `commission_breakdown` (gross, isr, billing, net).
+Same sequential formula with role `agent`. Returns `commission_breakdown` (gross, isr, cedular, billing, net).
 
-> **Full source for `PromoterController.php` (~400 lines) and `AgentController.php` (~200 lines) are in the repository. The commission breakdown in both controllers now uses the sequential ISR→billing formula per-policy. This still duplicates the tier-matching logic from `PolicyController::getProductCommissionMap()` but the ISR/billing math is now consistent with `Policy::agentNetAmount()`/`promoterNetAmount()`.
+> **`PromoterController.php` and `AgentController.php` delegate the commission math to `CommissionBreakdownService`, so the Dashboard, the directory and the KPI cards always agree.**
 
 ### Source: Commission Breakdown Template (`resources/js/Pages/Directory/Show.vue`)
 
-The commission breakdown is rendered via `stats.team_commission_breakdown` (promoter team total), `stats.commissions[].total_gross|total_isr|total_billing|total_net` (per-agent), and `stats.commission_breakdown` (agent view). Labels use sentence-case Spanish without hardcoded percentages (since `isr_retention`/`billing_retention` can vary per policy).
+The commission breakdown is rendered via `stats.team_commission_breakdown` (promoter team total), `stats.commissions[].total_gross|total_isr|total_cedular|total_billing|total_net` (per-agent), and `stats.commission_breakdown` (agent view). Labels use sentence-case Spanish without hardcoded percentages (since `isr_retention`/`cedular_tax`/`billing_retention` can vary per policy).
 
 **Agent view commission card:**
 - `"Comisión total generada"` → `stats.commission_breakdown.gross`
@@ -126,6 +128,16 @@ The commission breakdown is rendered via `stats.team_commission_breakdown` (prom
 1. **Policies Count** — Total policies within date range.
 2. **Total Commissions** — Sum of premium × agent_percentage from the product commission map.
 3. **Bonus Progress** — All active bonus schemes evaluated for this agent via `BonusOrchestratorService`.
+
+---
+
+## Agent Cedular Tax Flag
+
+`Directory/Create.vue` and `Directory/Edit.vue` expose an **Impuesto cedular** toggle for agents only (`cedular_tax_enabled`, validated by `StoreAgentRequest` / `UpdateAgentRequest`). When enabled, policies registered for that agent prefill `cedular_tax` with **5%**:
+
+- Create form: selecting the agent sets `cedular_tax` to 5 in `PolicyForm.vue`.
+- Backend: `StorePolicyRequest` applies 5 when the field is omitted, and the Excel import does the same when the cedular column is blank.
+- Edit form: existing policies keep their stored value; changing the agent does not overwrite it.
 
 ---
 
@@ -252,7 +264,7 @@ class Agent extends Model
 }
 ```
 
-> **Full source for `PromoterController.php` (~400 lines) and `AgentController.php` (~200 lines) are in the repository. The key business logic sections are documented in prose above. The commission breakdown in `PromoterController@show` iterates tiers manually — this duplicates `PolicyController::getProductCommissionMap()` logic and should be extracted.
+> **`PromoterController.php` and `AgentController.php` delegate the commission math to `CommissionBreakdownService`, so the Dashboard, the directory and the KPI cards always agree.**
 
 ---
 

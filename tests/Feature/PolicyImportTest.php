@@ -37,8 +37,8 @@ class PolicyImportTest extends TestCase
         $this->createCommissionScheme();
 
         $file = $this->makeSpreadsheet([
-            ['111111', 'Juan Pérez', 'METALIFE', 'Andrea López', '15/07/2026', 90000, 5, 10, 5, 'Pagada', 'Automático'],
-            ['222222', '', 'METALIFE', 'andrea lopez', '2026-07-16', 50000, 4, null, null, '', null],
+            ['111111', 'Juan Pérez', 'METALIFE', 'Andrea López', '15/07/2026', 90000, 5, 10, 3, 'Pagada', 'Automático'],
+            ['222222', '', 'METALIFE', 'andrea lopez', '2026-07-16', 50000, 4, 10, null, '', null],
         ]);
 
         $response = $this->actingAs(User::factory()->create())
@@ -58,7 +58,7 @@ class PolicyImportTest extends TestCase
         $this->assertEquals('12411.00', $policy->promoter_commission_amount);
         $this->assertEquals('5.00', $policy->billing_retention);
         $this->assertEquals('10.00', $policy->isr_retention);
-        $this->assertEquals('5.00', $policy->cedular_tax);
+        $this->assertEquals('3.00', $policy->cedular_tax);
         $this->assertEquals('Pagada', $policy->status);
         $this->assertEquals('2026-07-15', $policy->issue_date->toDateString());
         $this->assertEquals('METALIFE', $policy->product_type);
@@ -68,9 +68,29 @@ class PolicyImportTest extends TestCase
 
         $this->assertEquals('Activa', $secondPolicy->status);
         $this->assertEquals('10.00', $secondPolicy->isr_retention);
-        $this->assertEquals('5.00', $secondPolicy->cedular_tax);
+        // Sin impuesto cedular en el archivo → se guarda en 0
+        $this->assertEquals('0.00', $secondPolicy->cedular_tax);
         $this->assertEquals('Efectivo', $secondPolicy->payment_method);
         $this->assertNull($secondPolicy->client_name);
+    }
+
+    public function test_import_defaults_cedular_tax_to_five_for_agent_with_flag_enabled(): void
+    {
+        Agent::factory()->create([
+            'name' => 'Andrea López',
+            'is_active' => true,
+            'cedular_tax_enabled' => true,
+        ]);
+        $this->createCommissionScheme();
+
+        $file = $this->makeSpreadsheet([
+            ['777777', 'Cliente', 'METALIFE', 'Andrea López', '15/07/2026', 90000, 5, 10, null, 'Activa', 'Efectivo'],
+        ]);
+
+        $this->actingAs(User::factory()->create())
+            ->post(route('policies.import'), ['file' => $file]);
+
+        $this->assertEquals('5.00', Policy::where('policy_number', '777777')->firstOrFail()->cedular_tax);
     }
 
     public function test_import_reports_rows_with_errors_and_skips_them(): void
@@ -79,9 +99,10 @@ class PolicyImportTest extends TestCase
         $this->createCommissionScheme();
 
         $file = $this->makeSpreadsheet([
-            ['333333', 'Cliente', 'METALIFE', 'Agente inexistente', '15/07/2026', 90000, 5, null, null, null, null],
-            ['444444', 'Cliente', 'PRODUCTO INEXISTENTE', 'Andrea', '15/07/2026', 90000, 5, null, null, null, null],
-            ['555555', 'Cliente', 'METALIFE', 'Andrea', '15/07/2026', 90000, null, null, null, null, null],
+            ['333333', 'Cliente', 'METALIFE', 'Agente inexistente', '15/07/2026', 90000, 5, 10, null, null, null],
+            ['444444', 'Cliente', 'PRODUCTO INEXISTENTE', 'Andrea', '15/07/2026', 90000, 5, 10, null, null, null],
+            ['555555', 'Cliente', 'METALIFE', 'Andrea', '15/07/2026', 90000, null, 10, null, null, null],
+            ['666666', 'Cliente', 'METALIFE', 'Andrea', '15/07/2026', 90000, 5, null, null, null, null],
         ]);
 
         $this->actingAs(User::factory()->create())
@@ -90,11 +111,12 @@ class PolicyImportTest extends TestCase
         $result = session('import_result');
 
         $this->assertSame(0, $result['imported']);
-        $this->assertCount(3, $result['errors']);
+        $this->assertCount(4, $result['errors']);
         $this->assertStringContainsString('Fila 2:', $result['errors'][0]);
         $this->assertStringContainsString('agente', $result['errors'][0]);
         $this->assertStringContainsString('producto', $result['errors'][1]);
         $this->assertStringContainsString('costo de facturación', $result['errors'][2]);
+        $this->assertStringContainsString('retención de ISR', $result['errors'][3]);
         $this->assertDatabaseCount('policies', 0);
     }
 

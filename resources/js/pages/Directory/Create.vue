@@ -14,6 +14,7 @@ const form = useForm({
     promoter_id: '',
     photo: null,
     is_active: true,
+    cedular_tax_enabled: false,
     entry_date: new Date().toISOString().split('T')[0],
 });
 
@@ -156,6 +157,27 @@ const breadcrumbs = [
                             </el-option>
                         </el-select>
                         <div v-if="form.errors.promoter_id" class="text-red-500 text-xs">{{ form.errors.promoter_id }}</div>
+                    </div>
+
+                    <!-- Impuesto cedular (Solo Agentes) -->
+                    <div v-if="form.type === 'agent'" class="flex items-start justify-between gap-4 bg-gray-50/80 p-4 rounded-xl border border-gray-100">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Impuesto cedular</label>
+                            <p class="text-[13px] text-gray-400 mt-0.5">Si está activado, las nuevas pólizas de este agente se registrarán con 5% de impuesto cedular por defecto.</p>
+                        </div>
+                        <button
+                            type="button"
+                            role="switch"
+                            :aria-checked="form.cedular_tax_enabled"
+                            @click="form.cedular_tax_enabled = !form.cedular_tax_enabled"
+                            :class="form.cedular_tax_enabled ? 'bg-[#0f0f0f]' : 'bg-gray-200'"
+                            class="relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors duration-200"
+                        >
+                            <span
+                                :class="form.cedular_tax_enabled ? 'translate-x-6' : 'translate-x-1'"
+                                class="inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200"
+                            />
+                        </button>
                     </div>
 
                     <!-- Estado Activo / Inactivo -->

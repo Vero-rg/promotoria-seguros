@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Agent;
 use App\Models\Policy;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -14,6 +15,19 @@ class StorePolicyRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    /**
+     * The cedular tax is optional: it defaults to 5% when the selected agent
+     * has the flag enabled, otherwise it is stored as 0.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->input('cedular_tax') === null || $this->input('cedular_tax') === '') {
+            $agent = Agent::find($this->input('agent_id'));
+
+            $this->merge(['cedular_tax' => $agent?->cedular_tax_enabled ? 5 : 0]);
+        }
     }
 
     /**
@@ -31,7 +45,7 @@ class StorePolicyRequest extends FormRequest
             'commission_amount' => 'nullable|numeric',
             'promoter_commission_percentage' => 'nullable|numeric',
             'promoter_commission_amount' => 'nullable|numeric',
-            'isr_retention' => 'nullable|numeric|min:0|max:100',
+            'isr_retention' => 'required|numeric|min:0|max:100',
             'cedular_tax' => 'nullable|numeric|min:0|max:100',
             'billing_retention' => 'required|numeric|min:0|max:100',
             'status' => 'nullable|string',

@@ -18,7 +18,7 @@ const props = defineProps({
             promoter_commission_percentage: 0,
             promoter_commission_amount: 0,
             isr_retention: 10.00,
-            cedular_tax: 5.00,
+            cedular_tax: 0.00,
             billing_retention: null,
             status: 'activa',
             product_type: '',
@@ -41,7 +41,7 @@ const form = useForm({
     promoter_commission_percentage: props.policy.promoter_commission_percentage,
     promoter_commission_amount: props.policy.promoter_commission_amount,
     isr_retention: props.policy.isr_retention,
-    cedular_tax: props.policy.cedular_tax ?? 5.00,
+    cedular_tax: props.policy.cedular_tax ?? 0,
     billing_retention: props.policy.billing_retention ?? null,
     status: props.policy.status,
     product_type: props.policy.product_type || '',
@@ -100,6 +100,16 @@ watch(() => form.product_type, (productType) => {
     form.promoter_commission_percentage = Number(map.promoter_percentage) || 0;
 
     recalcCommissions();
+});
+
+// Agents with the cedular tax flag enabled register new policies with a 5% default
+watch(() => form.agent_id, (agentId) => {
+    if (props.isEdit) {
+        return;
+    }
+
+    const agent = props.agents?.find((item) => String(item.id) === String(agentId));
+    form.cedular_tax = agent?.cedular_tax_enabled ? 5 : 0;
 });
 
 watch(() => form.premium_amount, recalcCommissions);
@@ -296,13 +306,13 @@ const submit = () => {
 
                 <div class="grid grid-cols-2 gap-4 pt-2">
                     <div>
-                        <label for="isr_retention" class="block text-sm font-medium text-gray-700 mb-1">% Retención ISR</label>
-                        <el-input id="isr_retention" v-model="form.isr_retention" :min="0" :max="100" :step="0.5" :precision="2" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
+                        <label for="isr_retention" class="block text-sm font-medium text-gray-700 mb-1">% Retención ISR <span class="text-red-500">*</span></label>
+                        <el-input id="isr_retention" v-model="form.isr_retention" :min="0" :max="100" :step="0.5" :precision="2" placeholder="Obligatorio" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
                         <div v-if="form.errors.isr_retention" class="text-red-500 text-xs mt-1">{{ form.errors.isr_retention }}</div>
                     </div>
                     <div>
                         <label for="cedular_tax" class="block text-sm font-medium text-gray-700 mb-1">% Impuesto cedular</label>
-                        <el-input id="cedular_tax" v-model="form.cedular_tax" :min="0" :max="100" :step="0.5" :precision="2" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
+                        <el-input id="cedular_tax" v-model="form.cedular_tax" :min="0" :max="100" :step="0.5" :precision="2" placeholder="0" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm"/>
                         <div v-if="form.errors.cedular_tax" class="text-red-500 text-xs mt-1">{{ form.errors.cedular_tax }}</div>
                     </div>
                     <div>

@@ -95,13 +95,13 @@ Step 6: Net = After-cedular amount - Billing deduction
 
 Same sequential structure but uses `promoter_commission_amount` as the base.
 
-### Dashboard Net Income (`netAmount()`)
+### Dashboard Net Income
 
 ```
-Net Amount = agentNetAmount() + promoterNetAmount()
+Net Income = PNA − (agent net commissions + promoter net commissions)
 ```
 
-Returns the sum of agent net commission and promoter net commission after both have ISR, cedular and billing deducted sequentially. Used by the Dashboard KPI. Does NOT involve `premium_amount` directly.
+`CommissionBreakdownService` resolves each `Pagada` policy's gross commission (`PCA × percentage`, falling back to the active commission scheme when the policy has no percentage) and applies ISR → impuesto cedular → facturación sequentially. `Policy::netAmount()` still returns agent + promoter net commission for a single policy, but the Dashboard KPI subtracts that total from the period PNA.
 
 ---
 
@@ -115,8 +115,8 @@ Returns the sum of agent net commission and promoter net commission after both h
 - `commission_amount` — Agent commission in MXN
 - `promoter_commission_percentage` — Promoter override %, applied to the PCA
 - `promoter_commission_amount` — Promoter override in MXN
-- `isr_retention` — ISR tax retention % (default: 10%)
-- `cedular_tax` — Impuesto cedular % (default: 5%)
+- `isr_retention` — ISR tax retention % (required on create/edit)
+- `cedular_tax` — Impuesto cedular % (optional; defaults to 0, or 5 when the selected agent has `cedular_tax_enabled`)
 - `billing_retention` — Factoring/billing cost % (no default; required when creating/editing)
 
 ### Identification
@@ -479,7 +479,7 @@ class StorePolicyRequest extends FormRequest
             'commission_amount' => 'nullable|numeric',
             'promoter_commission_percentage' => 'nullable|numeric',
             'promoter_commission_amount' => 'nullable|numeric',
-            'isr_retention' => 'nullable|numeric|min:0|max:100',
+            'isr_retention' => 'required|numeric|min:0|max:100',
             'cedular_tax' => 'nullable|numeric|min:0|max:100',
             'billing_retention' => 'required|numeric|min:0|max:100',
             'status' => 'nullable|string',
@@ -550,7 +550,7 @@ class UpdatePolicyRequest extends FormRequest
             'commission_amount' => 'nullable|numeric',
             'promoter_commission_percentage' => 'nullable|numeric',
             'promoter_commission_amount' => 'nullable|numeric',
-            'isr_retention' => 'nullable|numeric|min:0|max:100',
+            'isr_retention' => 'required|numeric|min:0|max:100',
             'cedular_tax' => 'nullable|numeric|min:0|max:100',
             'billing_retention' => 'required|numeric|min:0|max:100',
             'status' => 'sometimes|string',
@@ -604,7 +604,7 @@ The create form:
 2. The PNA field shows the computed PCA (`PNA − $1,350`) in a green box below it.
 3. When the user selects a product type, the form auto-populates `commission_percentage` and `promoter_commission_percentage` from `productCommissionMap`.
 4. `commission_amount` is calculated client-side as `PCA × commission_percentage / 100`.
-5. ISR defaults to 10%, impuesto cedular to 5% and costo de facturación starts empty and is **required**.
+5. ISR defaults to 10% and is **required**; impuesto cedular starts at 0 (optional, blank is stored as 0) unless the selected agent has `cedular_tax_enabled`, in which case it is prefilled with 5; costo de facturación starts empty and is **required**.
 6. `policy_number` only accepts digits and both `policy_number` and `client_name` disable browser autofill (no card/address suggestions).
 
 The financial summary preview in `PolicyForm.vue` (`summary` computed property) applies ISR, then impuesto cedular, then billing sequentially — matching the backend `agentNetAmount()` and `promoterNetAmount()` methods exactly.
@@ -627,8 +627,8 @@ The policies list (`Policies/Index.vue`) has an **Importar pólizas** button tha
 | 4 | `Agente` | Yes | Name of an **active** agent (case/accent insensitive match). |
 | 5 | `Fecha de emisión` | Yes | `dd/mm/aaaa`, `aaaa-mm-dd` or an Excel date cell. |
 | 6 | `PNA` | Yes | Numeric. |
-| 7 | `% Retención ISR` | No | Defaults to `10`. |
-| 8 | `% Impuesto cedular` | No | Defaults to `5`. |
+| 7 | `% Retención ISR` | Yes | Numeric percentage (e.g. `10`). |
+| 8 | `% Impuesto cedular` | No | Blank is stored as `0`, or `5` when the agent has `cedular_tax_enabled`. |
 | 9 | `% Costo facturación` | Yes | Numeric percentage. |
 | 10 | `Estatus` | No | `Activa` (default), `No tomada` or `Pagada`. |
 | 11 | `Conducto de pago` | No | `Efectivo` (default) or `Automático`. |
