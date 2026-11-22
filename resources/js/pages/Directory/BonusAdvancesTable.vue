@@ -156,11 +156,10 @@ const save = (row) => {
                             <span class="text-xs font-semibold text-gray-800">{{ formatCurrency(row.amount) }}</span>
                             <Check v-if="savedMonth === row.month" class="h-3.5 w-3.5 text-green-600" />
                             <button
+                                v-if="editable"
                                 type="button"
-                                class="rounded-md p-1 transition-colors"
-                                :class="editable ? 'text-gray-400 hover:bg-gray-100 hover:text-gray-700' : 'cursor-not-allowed text-gray-300'"
-                                :disabled="!editable"
-                                :title="editable ? 'Editar anticipo' : 'La edición del anticipo está deshabilitada por ahora'"
+                                class="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                                title="Editar anticipo"
                                 @click="startEdit(row)"
                             >
                                 <Pencil class="h-3.5 w-3.5" />
