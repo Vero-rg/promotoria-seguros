@@ -68,10 +68,11 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * 🟢 Promotor con $600K PP, IRP 95%, 6 reclutas (Q4), 4 Primordial.
+     * 🟢 Promotor con $570K PP, IRP 100%, 6 reclutas (Q4), 4 Primordial.
      *
+     * El monto Primaordial no suma a la PP: los $570K vienen de pólizas Vida.
      * PP ≥ $555K, IRP ≥ 94% → Tier máximo: 22%.
-     * Monto: $600,000 × 22% = $132,000.
+     * Monto: $570,000 × 22% = $125,400.
      */
     public function test_promoter_achieves_max_tier_with_high_pp_and_excellent_irp(): void
     {
@@ -82,17 +83,17 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
         // ── 6 reclutas para Q4 ─────────────────────────────────────────
         $agents = $this->createRecruits($promoter, 6);
 
-        // ── 4 pólizas Primordial ($400K, todas pagadas) ───────────────
+        // ── 4 pólizas Primordial ($400K): solo requisito, no suman PP ──
         foreach (range(0, 3) as $i) {
             Policy::factory()->primordial()->withPremium(100_000)
                 ->for($agents[$i])
                 ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
-        // ── PP extra: $170K pagada + $30K no tomada (excluida) ────────
-        // PP total = $400K + $170K = $570K (solo Pagada)
+        // ── PP Vida: $570K pagada + $30K no tomada (excluida) ─────────
+        // PP total = $570K (solo Pagada)
         // IRP = Pagada / (Pagada + Activa) = 570K / 570K = 100%
-        Policy::factory()->vida()->withPremium(170_000)
+        Policy::factory()->vida()->withPremium(570_000)
             ->for($agents[4])
             ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_PAGADA]);
 
@@ -124,7 +125,7 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
 
         $agents = $this->createRecruits($promoter, 6);
 
-        // ── 4 pólizas Primordial ($400K pagadas) ───────────────────────
+        // ── 4 pólizas Primordial ($400K): solo requisito, no suman PP ──
         foreach (range(0, 3) as $i) {
             Policy::factory()->primordial()->withPremium(100_000)
                 ->for($agents[$i])
@@ -132,9 +133,9 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
         }
 
         // ── Para IRP = 92% con PP = $600K ──────────────────────────────
-        // Pagada = $400K + $200K = $600K. Activa (denominador) = $52K.
-        // IRP = Pagada / (Pagada + Activa) = 600K / 652K = 92.0%
-        Policy::factory()->vida()->withPremium(200_000)
+        // Pagada = $600K. Activa (denominador) = $52K.
+        // IRP = Pagada / (Pagada + Activa) = 600K / 652K = 92.02%
+        Policy::factory()->vida()->withPremium(600_000)
             ->for($agents[4])
             ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_PAGADA]);
 
@@ -142,7 +143,7 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
             ->for($agents[5])
             ->create(['issue_date' => '2026-09-01', 'status' => Policy::STATUS_ACTIVA]);
 
-        // IRP = 600K / 652K = 92.0% ✓
+        // IRP = 600K / 652K = 92.02% ✓
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
@@ -169,11 +170,16 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
         $agents = $this->createRecruits($promoter, 5);
 
         // ── PP e IRP excelentes ────────────────────────────────────────
-        foreach (range(0, 3) as $i) {
+        // Las Primordial solo cumplen el requisito de producto (no suman PP).
+        foreach (range(0, 2) as $i) {
             Policy::factory()->primordial()->withPremium(150_000)
                 ->for($agents[$i])
                 ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
         }
+
+        Policy::factory()->vida()->withPremium(600_000)
+            ->for($agents[3])
+            ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_PAGADA]);
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
@@ -228,7 +234,7 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
 
         $agents = $this->createRecruits($promoter, 6);
 
-        // ── 4 Primordial ($400K pagadas) ──────────────────────────────
+        // ── 4 Primordial ($400K pagadas): solo requisito, no suman PP ──
         foreach (range(0, 3) as $i) {
             Policy::factory()->primordial()->withPremium(100_000)
                 ->for($agents[$i])
@@ -236,9 +242,9 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
         }
 
         // ── IRP = 89% con PP = $534K ───────────────────────────────────
-        // Pagada = $400K + $134K = $534K. Activa (denominador) = $66K.
+        // Pagada = $534K. Activa (denominador) = $66K.
         // IRP = Pagada / (Pagada + Activa) = 534K / 600K = 89% < 91%
-        Policy::factory()->vida()->withPremium(134_000)
+        Policy::factory()->vida()->withPremium(534_000)
             ->for($agents[4])
             ->create(['issue_date' => '2026-08-15', 'status' => Policy::STATUS_PAGADA]);
 
@@ -270,14 +276,18 @@ class PromoterFirstYearProductionCalculatorTest extends TestCase
 
         $agents = $this->createRecruits($promoter, 6);
 
-        // 3 Primordial ($300K pagadas)
+        // 3 Primordial ($300K pagadas): solo requisito, no suman PP
         foreach (range(0, 2) as $i) {
             Policy::factory()->primordial()->withPremium(100_000)
                 ->for($agents[$i])
                 ->create(['issue_date' => '2026-08-01', 'status' => Policy::STATUS_PAGADA]);
         }
 
-        // IRP = 100% (todo Pagada), PP = $300K
+        // PP Vida $300K → PP = $300K, IRP = 100% (todo Pagada)
+        Policy::factory()->vida()->withPremium(300_000)
+            ->for($agents[3])
+            ->create(['issue_date' => '2026-08-10', 'status' => Policy::STATUS_PAGADA]);
+
         // PP ≥ $255K + IRP ≥ 94% → 14%
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 

@@ -99,6 +99,35 @@ class AdditionalAgentsCalculatorTest extends TestCase
     }
 
     /**
+     * 🟡 El monto de las pólizas Primordial no suma a la PP del equipo.
+     */
+    public function test_primordial_premiums_do_not_add_to_team_pp(): void
+    {
+        $scheme   = $this->createAdditionalAgentsScheme();
+        $promoter = Promoter::factory()->create();
+
+        $this->createQualifiedAgents($promoter, 5, 100_000);
+
+        // Pólizas Primordial de alto monto: no deben inflar la PP del bono
+        foreach ($promoter->agents as $agent) {
+            Policy::factory()->primordial()->withPremium(500_000)
+                ->for($agent)
+                ->create(['issue_date' => '2026-03-02', 'status' => Policy::STATUS_PAGADA]);
+        }
+
+        $result = $this->calculator->calculate(
+            $promoter,
+            $scheme,
+            Carbon::parse('2026-01-01'),
+            Carbon::parse('2026-12-31'),
+        );
+
+        $this->assertTrue($result['is_achieved'], 'Debió alcanzarse. Razón: '.($result['details']['reason'] ?? '—'));
+        $this->assertEquals(500_000.0, (float) $result['details']['total_pp']);
+        $this->assertEquals(35_000.0, $result['amount']); // $500K PP Vida × 7%
+    }
+
+    /**
      * 🟢 Exactamente 3 agentes con compensación → Tier 3 → 4%.
      */
     public function test_three_compensated_agents_reach_four_percent(): void

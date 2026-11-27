@@ -75,9 +75,27 @@ class BonusCompensationMatrix
             $note = 'Tramo del mejor mes: '.$details['best_month'];
         }
 
+        $fixedAmount = $tier !== null && !empty($tier['fixed_amount'])
+            ? (float) $tier['fixed_amount']
+            : null;
+
+        if ((string) $scheme->template_key === 'connection' && !empty($details['agent_breakdown'])) {
+            // Conexión se paga por agente: no hay un único porcentaje ni tramo.
+            $percentage = null;
+            $fixedAmount = null;
+            $note = 'Pago individual por agente según su PCA.';
+        }
+
+        if ((string) $scheme->template_key === 'monthly_development' && !empty($details['agent_breakdown'])) {
+            // Desarrollo Mensual se paga por agente: no hay un único porcentaje.
+            $percentage = null;
+            $fixedAmount = null;
+            $note = 'Pago individual por agente según su PCA y antigüedad.';
+        }
+
         return [
             'percentage'   => $percentage,
-            'fixed_amount' => $tier !== null && !empty($tier['fixed_amount']) ? (float) $tier['fixed_amount'] : null,
+            'fixed_amount' => $fixedAmount,
             'amount'       => (float) ($result['amount'] ?? 0),
             'note'         => $note,
         ];
@@ -94,6 +112,11 @@ class BonusCompensationMatrix
     public function nextLevel(Scheme $scheme, array $result): ?array
     {
         if ((string) $scheme->template_key === 'monthly_development') {
+            return null;
+        }
+
+        // Conexión se paga por agente: no existe un único «siguiente nivel».
+        if ((string) $scheme->template_key === 'connection') {
             return null;
         }
 

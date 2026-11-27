@@ -21,6 +21,9 @@ use Carbon\Carbon;
  *     retroactiva sobre el acumulado de los meses anteriores.
  *   - El monto calculado se puede sustituir manualmente; en ese caso la
  *     diferencia de los meses siguientes se recalcula con el monto guardado.
+ *   - Cuando el porcentaje sube respecto al mes anterior, el anticipo se
+ *     desglosa en: ventas del mes al porcentaje vigente + ajuste retroactivo
+ *     de los meses previos.
  */
 class BonusAdvanceService
 {
@@ -74,6 +77,7 @@ class BonusAdvanceService
         $paidSoFar = 0.0;
         $calculatedTotal = 0.0;
         $previousMetric = 0.0;
+        $previousPercentage = null;
         $rows = [];
 
         foreach ($months as $index => $month) {
@@ -82,31 +86,41 @@ class BonusAdvanceService
 
             $minimum = (float) ($config['month_'.($index + 1).'_min'] ?? 0);
             $metric = $this->cumulativeMetric($evaluation);
+            $monthMetric = round($metric - $previousMetric, 2);
             $belowMinimum = $minimum > 0 && $metric < $minimum;
 
+            $percentage = $this->reachedPercentage($scheme, $evaluation);
             $calculated = $belowMinimum ? 0.0 : max(0.0, round($cumulative - $paidSoFar, 2));
             $override = $overrides[$month['key']] ?? null;
             $amount = $override !== null ? round((float) $override, 2) : $calculated;
 
+            $breakdown = $this->buildBreakdown($calculated, $monthMetric, $percentage, $previousPercentage);
+
             $rows[] = [
-                'month'              => $month['key'],
-                'label'              => $month['label'],
-                'cumulative_amount'  => $cumulative,
-                'previous_total'     => round($paidSoFar, 2),
-                'calculated'         => $calculated,
-                'amount'             => $amount,
-                'is_override'        => $override !== null,
-                'minimum'            => $minimum,
-                'below_minimum'      => $belowMinimum,
-                'unlocked'           => (bool) ($evaluation['is_achieved'] ?? false),
-                'percentage'         => $this->reachedPercentage($scheme, $evaluation),
+                'month'               => $month['key'],
+                'label'               => $month['label'],
+                'cumulative_amount'   => $cumulative,
+                'previous_total'      => round($paidSoFar, 2),
+                'calculated'          => $calculated,
+                'amount'              => $amount,
+                'is_override'         => $override !== null,
+                'minimum'             => $minimum,
+                'below_minimum'       => $belowMinimum,
+                'unlocked'            => (bool) ($evaluation['is_achieved'] ?? false),
+                'percentage'          => $percentage,
+                // Desglose del anticipo: mes al porcentaje vigente + retroactivo.
+                'previous_percentage' => $previousPercentage,
+                'percentage_delta'    => $breakdown['percentage_delta'],
+                'month_amount'        => $breakdown['month_amount'],
+                'retroactive_amount'  => $breakdown['retroactive_amount'],
                 // Ventas del mes (PCA del agente o PP del equipo) para comparar el %.
-                'metric_label'       => $metricLabel,
-                'metric'             => round($metric, 2),
-                'month_metric'       => round($metric - $previousMetric, 2),
+                'metric_label'        => $metricLabel,
+                'metric'              => round($metric, 2),
+                'month_metric'        => $monthMetric,
             ];
 
             $previousMetric = $metric;
+            $previousPercentage = $percentage;
             $paidSoFar = round($paidSoFar + $amount, 2);
             $calculatedTotal = round($calculatedTotal + $calculated, 2);
         }
@@ -117,6 +131,40 @@ class BonusAdvanceService
             'calculated_total' => $calculatedTotal,
             'has_overrides'    => $overrides->isNotEmpty(),
             'metric_label'     => $metricLabel,
+        ];
+    }
+
+    /**
+     * Desglosa el anticipo del mes entre las ventas del mes al porcentaje
+     * vigente y el ajuste retroactivo de los meses anteriores.
+     *
+     * El retroactivo es el resto del anticipo calculado: incluye la diferencia
+     * de porcentaje aplicada al acumulado previo y los montos que se hayan
+     * arrastrado (por ejemplo, un mínimo mensual no alcanzado).
+     *
+     * @return array{month_amount: float|null, retroactive_amount: float|null, percentage_delta: float|null}
+     */
+    private function buildBreakdown(float $calculated, float $monthMetric, ?float $percentage, ?float $previousPercentage): array
+    {
+        $empty = ['month_amount' => null, 'retroactive_amount' => null, 'percentage_delta' => null];
+
+        if ($calculated <= 0 || $percentage === null || $monthMetric <= 0) {
+            return $empty;
+        }
+
+        $monthAmount = round($monthMetric * ($percentage / 100), 2);
+        $retroactiveAmount = round($calculated - $monthAmount, 2);
+
+        if ($retroactiveAmount <= 0) {
+            return $empty;
+        }
+
+        return [
+            'month_amount'       => $monthAmount,
+            'retroactive_amount' => $retroactiveAmount,
+            'percentage_delta'   => $previousPercentage !== null
+                ? round($percentage - $previousPercentage, 2)
+                : null,
         ];
     }
 

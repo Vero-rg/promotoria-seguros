@@ -76,11 +76,12 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * 🟢 Escenario feliz: Agente con $150,000 PCA, 1 póliza Vida y 1 Primordial.
+     * 🟢 Escenario feliz: Agente con $198,650 PCA, 1 póliza Vida y 1 Primordial.
      *
-     * PCA real: (100,000 − 1,350) + (50,000 − 1,350) = 147,300
+     * PCA real: 200,000 − 1,350 = 198,650 (la póliza Primordial solo cumple
+     * el requisito de producto: su monto no participa en el bono).
      * Debe alcanzar el Tier 1 (min_pca = 130,000) y recibir 10% sobre PCA.
-     * Monto esperado: $147,300 × 10% = $14,730.
+     * Monto esperado: $198,650 × 10% = $19,865.
      */
     public function test_agent_receives_tier_one_bonus_when_all_conditions_are_met(): void
     {
@@ -89,11 +90,11 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $agent = Agent::factory()->create(['created_at' => '2026-01-01']);
         $period = $this->defaultPeriod();
 
-        // 1 póliza Vida con $100,000 + 1 Primordial con $50,000 → PCA = $150,000
+        // 1 póliza Vida con $200,000 → PCA = $198,650; 1 Primordial (requisito)
         Policy::factory()
             ->vida()
             ->pagada()
-            ->withPremium(100_000)
+            ->withPremium(200_000)
             ->for($agent)
             ->create(['issue_date' => '2026-02-15']);
 
@@ -112,7 +113,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         // ── Assert ─────────────────────────────────────────────────────
         $this->assertTrue($result['is_achieved'], 'El bono debió alcanzarse. Razón: '.($result['details']['reason'] ?? '—'));
 
-        $this->assertEquals(14_730.0, $result['amount']);
+        $this->assertEquals(19_865.0, $result['amount']);
         // Tier 1 es el de menor min_pca, queda en último lugar tras orden descendente
         $this->assertEquals(2, $result['tier_index'], 'Debió tomar el Tier 1 (índice 2, el último tras sort DESC).');
 
@@ -124,15 +125,15 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         );
 
         // Progreso
-        $this->assertEquals(147_300.0, $result['progress']['current_value']);
+        $this->assertEquals(198_650.0, $result['progress']['current_value']);
         $this->assertEquals(self::TIER_1_MIN_PCA, $result['progress']['required_value']);
     }
 
     /**
-     * 🟢 Agente con $250,000 PCA y ambos productos → debe alcanzar Tier 2.
+     * 🟢 Agente con $248,650 PCA y ambos productos → debe alcanzar Tier 2.
      *
-     * PCA real: (150,000 − 1,350) + (100,000 − 1,350) = 247,300
-     * Monto esperado: $247,300 × 14% = $34,622.
+     * PCA real: 250,000 − 1,350 = 248,650 (Primordial fuera del monto).
+     * Monto esperado: $248,650 × 14% = $34,811.
      */
     public function test_agent_receives_tier_two_bonus_with_higher_pca(): void
     {
@@ -140,7 +141,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $agent = Agent::factory()->create(['created_at' => '2026-01-01']);
         $period = $this->defaultPeriod();
 
-        Policy::factory()->vida()->pagada()->withPremium(150_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(250_000)->for($agent)
             ->create(['issue_date' => '2026-02-01']);
         Policy::factory()->primordial()->pagada()->withPremium(100_000)->for($agent)
             ->create(['issue_date' => '2026-02-15']);
@@ -148,7 +149,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertTrue($result['is_achieved']);
-        $this->assertEquals(34_622.0, $result['amount']);
+        $this->assertEquals(34_811.0, $result['amount']);
         $this->assertEquals(1, $result['tier_index'], 'Debió tomar el Tier 2 (índice 1, el segundo tras sort DESC).');
         $this->assertEquals(
             self::TIER_2_AGENT_PERCENTAGE,
@@ -190,7 +191,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
     }
 
     /**
-     * 🔴 El agente tiene ambos productos requeridos pero su PCA ($100,000)
+     * 🔴 El agente tiene ambos productos requeridos pero su PCA ($58,650)
      *    no alcanza ni siquiera el Tier 1 (min_pca = 130,000).
      */
     public function test_agent_fails_bonus_due_to_low_volume(): void
@@ -210,7 +211,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $this->assertEquals(0.0, $result['amount']);
 
         // El progreso debe mostrar el valor real vs lo requerido
-        $this->assertEquals(97_300.0, $result['progress']['current_value']);
+        $this->assertEquals(58_650.0, $result['progress']['current_value']);
         $this->assertEquals(self::TIER_1_MIN_PCA, $result['progress']['required_value']);
     }
 
@@ -278,8 +279,9 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
     /**
      * 🟢 El agente tiene más de 1 póliza por producto requerido → igual aplica.
      *
-     * PCA real: 5 pólizas, cada una con −$1,350 → $153,250
-     * Monto esperado: $153,250 × 10% = $15,325.
+     * PCA real: 3 pólizas Vida (170,000) − 3 × $1,350 = $165,950.
+     * Las 2 Primordial solo cumplen el requisito y no aportan monto.
+     * Monto esperado: $165,950 × 10% = $16,595.
      */
     public function test_agent_with_extra_policies_still_qualifies(): void
     {
@@ -288,22 +290,22 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $period = $this->defaultPeriod();
 
         // 3 Vida + 2 Primordial — excede el mínimo
-        Policy::factory()->vida()->pagada()->withPremium(50_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(70_000)->for($agent)
             ->create(['issue_date' => '2026-02-01']);
-        Policy::factory()->vida()->pagada()->withPremium(40_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(60_000)->for($agent)
             ->create(['issue_date' => '2026-02-15']);
-        Policy::factory()->vida()->pagada()->withPremium(30_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(40_000)->for($agent)
             ->create(['issue_date' => '2026-03-01']);
         Policy::factory()->primordial()->pagada()->withPremium(20_000)->for($agent)
             ->create(['issue_date' => '2026-03-15']);
         Policy::factory()->primordial()->pagada()->withPremium(20_000)->for($agent)
             ->create(['issue_date' => '2026-04-01']);
-        // PCA total = 160,000 → Tier 1
+        // PCA Vida = 165,950 → Tier 1
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertTrue($result['is_achieved']);
-        $this->assertEquals(15_325.0, $result['amount']); // 153,250 × 10%
+        $this->assertEquals(16_595.0, $result['amount']); // 165,950 × 10%
     }
 
     /**
@@ -341,8 +343,8 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
      * 🟢 Los tiers se evalúan en orden: si el agente califica para Tier 3,
      *    debe tomar ese (no el Tier 1 o 2).
      *
-     * PCA real: (500,000 − 1,350) + (300,000 − 1,350) = 797,300
-     * Monto esperado: $797,300 × 36% = $287,028.
+     * PCA real: 800,000 − 1,350 = 798,650 (la Primordial no aporta monto).
+     * Monto esperado: $798,650 × 36% = $287,514.
      */
     public function test_agent_gets_highest_qualifying_tier(): void
     {
@@ -350,8 +352,8 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $agent = Agent::factory()->create(['created_at' => '2026-01-01']);
         $period = $this->defaultPeriod();
 
-        // PCA = $800,000 → debe calificar para Tier 3
-        Policy::factory()->vida()->pagada()->withPremium(500_000)->for($agent)
+        // PCA = $798,650 → debe calificar para Tier 3
+        Policy::factory()->vida()->pagada()->withPremium(800_000)->for($agent)
             ->create(['issue_date' => '2026-02-01']);
         Policy::factory()->primordial()->pagada()->withPremium(300_000)->for($agent)
             ->create(['issue_date' => '2026-03-01']);
@@ -360,7 +362,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
 
         $this->assertTrue($result['is_achieved']);
         $this->assertEquals(0, $result['tier_index'], 'Debió tomar el Tier 3 (índice 0, el primero tras sort DESC).');
-        $this->assertEquals(287_028.0, $result['amount']); // 797,300 × 36%
+        $this->assertEquals(287_514.0, $result['amount']); // 798,650 × 36%
         $this->assertEquals(
             self::TIER_3_AGENT_PERCENTAGE,
             (float) $result['tier_data']['agent_percentage']
@@ -375,8 +377,9 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
      * 🟢 Con menos del 60% de pólizas automáticas el bono se calcula por separado:
      *    PCA en efectivo × Bono Efectivo + PCA automática × Bono Automático.
      *
-     * Vida efectivo $200,000 → PCA $198,650 → Tier 1 (10%)  = $19,865
-     * Primordial automático $150,000 → PCA $148,650 → Tier 1 (16%) = $23,784
+     * Vida efectivo $200,000  → PCA $198,650 → Tier 1 (10%)  = $19,865
+     * Vida automático $150,000 → PCA $148,650 → Tier 1 (16%) = $23,784
+     * Primordial efectivo $50,000 → requisito de producto, sin monto
      * Total esperado: $43,649.
      */
     public function test_bonus_splits_cash_and_automatic_pca_when_automatic_share_is_below_sixty_percent(): void
@@ -391,10 +394,16 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
                 'payment_method' => Policy::PAYMENT_METHOD_CASH,
             ]);
 
-        Policy::factory()->primordial()->pagada()->withPremium(150_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(150_000)->for($agent)
             ->create([
                 'issue_date' => '2026-03-01',
                 'payment_method' => Policy::PAYMENT_METHOD_AUTOMATIC,
+            ]);
+
+        Policy::factory()->primordial()->pagada()->withPremium(50_000)->for($agent)
+            ->create([
+                'issue_date' => '2026-03-15',
+                'payment_method' => Policy::PAYMENT_METHOD_CASH,
             ]);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
@@ -411,7 +420,8 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
      * 🟢 Con 60% o más de pólizas automáticas toda la PCA se paga como bono
      *    automático, aunque existan pólizas en efectivo.
      *
-     * PCA total $800,000 → Tier 3 (44% automático) = $352,000.
+     * Vida PCA $1,243,250 → Tier 3 (44% automático) = $547,030.
+     * La póliza Primordial solo cumple el requisito y no suma al monto.
      */
     public function test_bonus_pays_everything_as_automatic_when_sixty_percent_of_policies_are_automatic(): void
     {
@@ -422,21 +432,23 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $automatic = ['payment_method' => Policy::PAYMENT_METHOD_AUTOMATIC];
         $cash = ['payment_method' => Policy::PAYMENT_METHOD_CASH];
 
-        Policy::factory()->vida()->pagada()->withPremium(300_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(500_000)->for($agent)
             ->create(['issue_date' => '2026-02-01', ...$automatic]);
-        Policy::factory()->primordial()->pagada()->withPremium(200_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(300_000)->for($agent)
             ->create(['issue_date' => '2026-02-10', ...$automatic]);
-        Policy::factory()->vida()->pagada()->withPremium(100_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(200_000)->for($agent)
             ->create(['issue_date' => '2026-02-20', ...$automatic]);
-        Policy::factory()->primordial()->pagada()->withPremium(150_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(150_000)->for($agent)
             ->create(['issue_date' => '2026-03-01', ...$cash]);
-        Policy::factory()->vida()->pagada()->withPremium(56_750)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(100_000)->for($agent)
             ->create(['issue_date' => '2026-03-10', ...$cash]);
+        Policy::factory()->primordial()->pagada()->withPremium(80_000)->for($agent)
+            ->create(['issue_date' => '2026-03-20', ...$cash]);
 
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertTrue($result['is_achieved']);
-        $this->assertEquals(352_000.0, $result['amount']);
+        $this->assertEquals(547_030.0, $result['amount']);
         $this->assertEquals('automatic', $result['details']['payment_strategy']);
         $this->assertEquals(0.0, $result['details']['cash_amount']);
         $this->assertEquals(60.0, $result['details']['automatic_ratio']);
@@ -447,7 +459,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
      * 🟢 El bono se desbloquea con la PCA TOTAL: el conducto de pago
      *    (efectivo / automático) es solo informativo y no genera barras.
      *
-     * PCA $200,000 (efectivo) → Tier 2. El breakdown solo muestra la PCA total,
+     * PCA $248,650 (efectivo) → Tier 2. El breakdown solo muestra la PCA total,
      * los productos requeridos y el conteo de pólizas.
      */
     public function test_payment_channel_is_informational_and_does_not_create_bars(): void
@@ -456,7 +468,7 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $agent = Agent::factory()->create(['created_at' => '2026-01-01']);
         $period = $this->defaultPeriod();
 
-        Policy::factory()->vida()->pagada()->withPremium(200_000)->for($agent)
+        Policy::factory()->vida()->pagada()->withPremium(250_000)->for($agent)
             ->create(['issue_date' => '2026-02-01', 'payment_method' => Policy::PAYMENT_METHOD_CASH]);
         Policy::factory()->primordial()->pagada()->withPremium(40_000)->for($agent)
             ->create(['issue_date' => '2026-03-01', 'payment_method' => Policy::PAYMENT_METHOD_CASH]);
@@ -473,13 +485,13 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $this->assertNotContains('Pólizas en pago automático (%)', $labels, 'El % automático no debe ser un requisito.');
 
         $pcaBar = collect($result['progress_breakdown'])->firstWhere('label', 'PCA Total del Trimestre ($)');
-        $this->assertEquals(237_300.0, (float) $pcaBar['current']);
+        $this->assertEquals(248_650.0, (float) $pcaBar['current']);
         $this->assertTrue($pcaBar['met']);
 
         // Info informativa del pago
         $info = $result['details']['payment_info'];
         $this->assertEquals('split', $info['strategy']);
-        $this->assertEquals(237_300.0, $info['cash_pca']);
+        $this->assertEquals(248_650.0, $info['cash_pca']);
         $this->assertEquals(0.0, $info['automatic_pca']);
         $this->assertEquals(0.0, $info['automatic_ratio']);
         $this->assertEquals(14.0, $info['cash_percentage']);
@@ -489,6 +501,8 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
     /**
      * 🟢 Cuando domina el pago automático, el porcentaje aplicado es el
      *    automático del tramo alcanzado.
+     *
+     * La póliza Primordial no suma monto ni participa en el % de conducto.
      */
     public function test_payment_info_reports_applied_automatic_percentage(): void
     {
@@ -508,8 +522,8 @@ class AgentFirstYearProductionCalculatorTest extends TestCase
         $info = $result['details']['payment_info'];
         $this->assertEquals('automatic', $info['strategy']);
         $this->assertEquals(100.0, $info['automatic_ratio']);
-        $this->assertEquals(2, $info['total_policy_count']);
-        $this->assertEquals(2, $info['automatic_policy_count']);
+        $this->assertEquals(1, $info['total_policy_count']);
+        $this->assertEquals(1, $info['automatic_policy_count']);
         $this->assertEquals(0.0, $info['cash_percentage']);
         $this->assertGreaterThan(0, $info['automatic_percentage']);
         $this->assertEquals(20.0, $info['applied_percentage']);

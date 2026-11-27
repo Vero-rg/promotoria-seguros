@@ -124,7 +124,7 @@ Net Income = PNA − (agent net commissions + promoter net commissions)
 - `client_name` — Name of the insured person (optional)
 - `issue_date` — Date the policy was issued
 - `product_type` — One of: `METALIFE`, `PERFECTLIFE`, `PRIMORDIAL`
-- `payment_method` — Payment channel: `Efectivo` or `Automático` (required on create/edit; the column is NOT NULL and defaults to `Automático`; legacy rows were backfilled to `Automático`; imports default to `Efectivo` when the cell is empty)
+- `payment_method` — Payment channel: `Efectivo` or `Automático` (required on create/edit; the create form preselects `Automático`; the column is NOT NULL and defaults to `Automático`; legacy rows were backfilled to `Automático`; imports default to `Efectivo` when the cell is empty)
 - `agent_id` — Foreign key to the selling agent
 
 ### Status Field
@@ -623,21 +623,25 @@ The policies list (`Policies/Index.vue`) has an **Importar pólizas** button tha
 |---|--------|----------|-------|
 | 1 | `Número de póliza` | Yes | Digits only, unique. Stored as text in the template so Excel keeps all digits. |
 | 2 | `Cliente` | No | Free text. |
-| 3 | `Producto` | Yes | Must match a product defined in the active commission schemes (e.g. `METALIFE`). |
-| 4 | `Agente` | Yes | Name of an **active** agent (case/accent insensitive match). |
+| 3 | `Producto` | Yes | **Dropdown list** (`C2:C5000`) fed from the products of the active commission schemes (listed in the `Catálogo` sheet). |
+| 4 | `Agente` | Yes | **Dropdown list** (`D2:D5000`) fed from the active agents listed in the `Catálogo` sheet. |
 | 5 | `Fecha de emisión` | Yes | `dd/mm/aaaa`, `aaaa-mm-dd` or an Excel date cell. |
 | 6 | `PNA` | Yes | Numeric. |
-| 7 | `% Retención ISR` | Yes | Numeric percentage (e.g. `10`). |
-| 8 | `% Impuesto cedular` | No | Blank is stored as `0`, or `5` when the agent has `cedular_tax_enabled`. |
-| 9 | `% Costo facturación` | Yes | Numeric percentage. |
-| 10 | `Estatus` | No | `Activa` (default), `No tomada` or `Pagada`. |
-| 11 | `Conducto de pago` | No | `Efectivo` (default) or `Automático`. |
+| 7 | `% Impuesto cedular` | No | Blank is stored as `0`, or `5` when the agent has `cedular_tax_enabled`. |
+| 8 | `% Costo facturación` | Yes | Numeric percentage. |
+| 9 | `Estatus` | No | **Dropdown list** (`I2:I5000`): `Activa`, `No tomada` or `Pagada`. Blank defaults to `Activa`. |
+| 10 | `Conducto de pago` | No | **Dropdown list** (`J2:J5000`): `Efectivo` or `Automático`. Blank defaults to `Efectivo`. |
 
-Headers are matched by normalized text, so aliases such as `No. Póliza`, `prima`, `isr` or `cedular` also work, and column order is irrelevant.
+Headers are matched by normalized text, so aliases such as `No. Póliza`, `prima` or `cedular` also work, and column order is irrelevant.
+
+The retention ISR is **not captured in the template**: every imported policy is stored with `isr_retention = 10`. Legacy files that still carry a `% Retención ISR` column keep importing — the column is simply ignored.
 
 ### Behavior
+- The template contains **only the header row** — no example rows are included, so users start typing at row 2.
 - The file is read with **PhpSpreadsheet** (`phpoffice/phpspreadsheet`), always from the **first sheet**.
+- The template applies **data validation dropdowns** to the Producto, Agente, Estatus and Conducto de pago columns (rows 2–5000), with a Spanish input message and a blocking error message. Agent/product lists come from the `Catálogo` sheet ranges; status and payment lists are inline (`"Activa,No tomada,Pagada"`, `"Efectivo,Automático"`). Note that PhpSpreadsheet inverts the OOXML `showDropDown` attribute, so the code calls `setShowDropDown(true)` to make the arrow visible.
 - Agent and product commissions are resolved from the active commission scheme, and the amounts are computed on the **PCA** (`PNA − Policy::PCA_DEDUCTION`), exactly like the create/edit form.
+- The ISR retention is always `10`: `PolicyImportService::DEFAULT_ISR_RETENTION`.
 - Rows are validated individually: valid rows are created, invalid rows are skipped and reported as `Fila N: <motivo>` (unknown agent/product, duplicated or missing policy number, invalid date, missing PNA or billing cost).
 - The result is flashed as `import_result` (`{ imported, errors[] }`) and shown inside the dialog. Flash messages are shared to Inertia via `handleInertiaRequests`.
 

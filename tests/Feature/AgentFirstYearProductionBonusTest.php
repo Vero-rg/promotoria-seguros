@@ -52,7 +52,7 @@ class AgentFirstYearProductionBonusTest extends TestCase
             'created_at' => Carbon::now()->subMonths(3),
         ]);
 
-        // 3 PRIMORDIAL policies with enough PCA
+        // 3 PRIMORDIAL policies: solo cumplen el requisito de producto
         for ($i = 0; $i < 3; $i++) {
             Policy::factory()->create([
                 'agent_id' => $agent->id,
@@ -62,6 +62,15 @@ class AgentFirstYearProductionBonusTest extends TestCase
                 'issue_date' => Carbon::now()->subDays($i),
             ]);
         }
+
+        // La PCA la aporta una póliza Vida: 20,000 − 1,350 = 18,650
+        Policy::factory()->create([
+            'agent_id' => $agent->id,
+            'status' => 'Pagada',
+            'premium_amount' => 20000,
+            'product_type' => 'Vida',
+            'issue_date' => Carbon::now()->subDays(5),
+        ]);
 
         $scheme = $this->createSchemeWithProductRequirements([
             ['product_type' => 'PRIMORDIAL', 'min_count' => 3],
@@ -77,6 +86,10 @@ class AgentFirstYearProductionBonusTest extends TestCase
 
         $this->assertTrue($result['is_achieved'], 'Bonus should unlock with 3 PRIMORDIAL policies');
         $this->assertGreaterThan(0, $result['amount']);
+
+        // El monto de las PRIMORDIAL no suma a la PCA
+        $this->assertEquals(18_650.0, (float) $result['progress']['current_value']);
+        $this->assertEquals(1_865.0, $result['amount']); // 18,650 × 10%
     }
 
     /** @test */

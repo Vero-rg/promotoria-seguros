@@ -57,4 +57,21 @@ class Scheme extends Model
     {
         return $this->hasManyThrough(SchemeTier::class, SchemeVersion::class);
     }
+
+    /**
+     * Cuota de reclutamiento del trimestre indicado (1-4).
+     *
+     * Soporta ambos formatos guardados históricamente: llaves numéricas
+     * ({"1": 2}) y el formato con prefijo ({"q1": 2}).
+     */
+    public function quarterlyRecruitsQuota(int $quarter): int
+    {
+        $quota = $this->quarterly_recruits ?? [];
+
+        if (! is_array($quota)) {
+            return 0;
+        }
+
+        return (int) ($quota["q{$quarter}"] ?? $quota[$quarter] ?? $quota[(string) $quarter] ?? 0);
+    }
 }

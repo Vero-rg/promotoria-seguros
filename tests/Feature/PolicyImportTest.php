@@ -8,8 +8,10 @@ use App\Models\Scheme;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Tests\TestCase;
 
@@ -25,7 +27,6 @@ class PolicyImportTest extends TestCase
         'Fecha de emisión',
         'PNA',
         '% Costo facturación',
-        '% Retención ISR',
         '% Impuesto cedular',
         'Estatus',
         'Conducto de pago',
@@ -37,8 +38,8 @@ class PolicyImportTest extends TestCase
         $this->createCommissionScheme();
 
         $file = $this->makeSpreadsheet([
-            ['111111', 'Juan Pérez', 'METALIFE', 'Andrea López', '15/07/2026', 90000, 5, 10, 3, 'Pagada', 'Automático'],
-            ['222222', '', 'METALIFE', 'andrea lopez', '2026-07-16', 50000, 4, 10, null, '', null],
+            ['111111', 'Juan Pérez', 'METALIFE', 'Andrea López', '15/07/2026', 90000, 5, 3, 'Pagada', 'Automático'],
+            ['222222', '', 'METALIFE', 'andrea lopez', '2026-07-16', 50000, 4, null, '', null],
         ]);
 
         $response = $this->actingAs(User::factory()->create())
@@ -84,7 +85,7 @@ class PolicyImportTest extends TestCase
         $this->createCommissionScheme();
 
         $file = $this->makeSpreadsheet([
-            ['777777', 'Cliente', 'METALIFE', 'Andrea López', '15/07/2026', 90000, 5, 10, null, 'Activa', 'Efectivo'],
+            ['777777', 'Cliente', 'METALIFE', 'Andrea López', '15/07/2026', 90000, 5, null, 'Activa', 'Efectivo'],
         ]);
 
         $this->actingAs(User::factory()->create())
@@ -99,10 +100,9 @@ class PolicyImportTest extends TestCase
         $this->createCommissionScheme();
 
         $file = $this->makeSpreadsheet([
-            ['333333', 'Cliente', 'METALIFE', 'Agente inexistente', '15/07/2026', 90000, 5, 10, null, null, null],
-            ['444444', 'Cliente', 'PRODUCTO INEXISTENTE', 'Andrea', '15/07/2026', 90000, 5, 10, null, null, null],
-            ['555555', 'Cliente', 'METALIFE', 'Andrea', '15/07/2026', 90000, null, 10, null, null, null],
-            ['666666', 'Cliente', 'METALIFE', 'Andrea', '15/07/2026', 90000, 5, null, null, null, null],
+            ['333333', 'Cliente', 'METALIFE', 'Agente inexistente', '15/07/2026', 90000, 5, null, null, null],
+            ['444444', 'Cliente', 'PRODUCTO INEXISTENTE', 'Andrea', '15/07/2026', 90000, 5, null, null, null],
+            ['555555', 'Cliente', 'METALIFE', 'Andrea', '15/07/2026', 90000, null, null, null, null],
         ]);
 
         $this->actingAs(User::factory()->create())
@@ -111,13 +111,31 @@ class PolicyImportTest extends TestCase
         $result = session('import_result');
 
         $this->assertSame(0, $result['imported']);
-        $this->assertCount(4, $result['errors']);
+        $this->assertCount(3, $result['errors']);
         $this->assertStringContainsString('Fila 2:', $result['errors'][0]);
         $this->assertStringContainsString('agente', $result['errors'][0]);
         $this->assertStringContainsString('producto', $result['errors'][1]);
         $this->assertStringContainsString('costo de facturación', $result['errors'][2]);
-        $this->assertStringContainsString('retención de ISR', $result['errors'][3]);
         $this->assertDatabaseCount('policies', 0);
+    }
+
+    public function test_import_always_applies_ten_percent_isr_even_if_the_file_has_the_column(): void
+    {
+        Agent::factory()->create(['name' => 'Andrea', 'is_active' => true]);
+        $this->createCommissionScheme();
+
+        // Plantillas anteriores incluyen la columna de ISR: se ignora y se guarda 10%
+        $legacyHeaders = self::HEADERS;
+        array_splice($legacyHeaders, 6, 0, ['% Retención ISR']);
+
+        $file = $this->makeSpreadsheet([
+            ['888888', 'Cliente', 'METALIFE', 'Andrea', '15/07/2026', 90000, 25, 5, null, 'Activa', 'Efectivo'],
+        ], $legacyHeaders);
+
+        $this->actingAs(User::factory()->create())
+            ->post(route('policies.import'), ['file' => $file]);
+
+        $this->assertEquals('10.00', Policy::where('policy_number', '888888')->firstOrFail()->isr_retention);
     }
 
     public function test_import_requires_a_file(): void
@@ -146,17 +164,73 @@ class PolicyImportTest extends TestCase
         $sheet = $spreadsheet->getActiveSheet();
 
         $this->assertSame('Número de póliza', $sheet->getCell('A1')->getValue());
-        $this->assertSame('% Retención ISR', $sheet->getCell('G1')->getValue());
-        $this->assertSame('% Impuesto cedular', $sheet->getCell('H1')->getValue());
-        $this->assertSame('% Costo facturación', $sheet->getCell('I1')->getValue());
-        $this->assertSame('Estatus', $sheet->getCell('J1')->getValue());
-        $this->assertSame('Conducto de pago', $sheet->getCell('K1')->getValue());
-        $this->assertSame('878901', $sheet->getCell('A2')->getValue());
+        $this->assertSame('% Impuesto cedular', $sheet->getCell('G1')->getValue());
+        $this->assertSame('% Costo facturación', $sheet->getCell('H1')->getValue());
+        $this->assertSame('Estatus', $sheet->getCell('I1')->getValue());
+        $this->assertSame('Conducto de pago', $sheet->getCell('J1')->getValue());
+        // La plantilla se descarga vacía: solo encabezados, listas desplegables y catálogo
+        $this->assertNull($sheet->getCell('A2')->getValue());
+        $this->assertNull($sheet->getCell('D2')->getValue());
         $this->assertSame('Catálogo', $spreadsheet->getSheet(1)->getTitle());
         $this->assertSame('METALIFE', $spreadsheet->getSheet(1)->getCell('A2')->getValue());
 
+        // La retención de ISR ya no se captura en la plantilla
+        $this->assertNull($sheet->getCell('K1')->getValue());
+
+        // Cada columna de catálogo es una lista desplegable
+        $productValidation = $this->validationFor($sheet, 'C');
+        $this->assertNotNull($productValidation);
+        $this->assertSame(DataValidation::TYPE_LIST, $productValidation->getType());
+        $this->assertSame("'Catálogo'!\$A\$2:\$A\$2", $productValidation->getFormula1());
+
+        $agentValidation = $this->validationFor($sheet, 'D');
+        $this->assertNotNull($agentValidation);
+        $this->assertSame(DataValidation::TYPE_LIST, $agentValidation->getType());
+        $this->assertSame("'Catálogo'!\$A\$5:\$A\$5", $agentValidation->getFormula1());
+        $this->assertSame('Andrea', $spreadsheet->getSheet(1)->getCell('A5')->getValue());
+
+        $this->assertSame('"Activa,No tomada,Pagada"', $this->validationFor($sheet, 'I')?->getFormula1());
+        $this->assertSame('"Efectivo,Automático"', $this->validationFor($sheet, 'J')?->getFormula1());
+
+        // showDropDown invertido en OOXML: true = flecha visible
+        $this->assertTrue($this->validationFor($sheet, 'J')?->getShowDropDown());
+
         $spreadsheet->disconnectWorksheets();
         unlink($path);
+    }
+
+    public function test_template_omits_agent_dropdown_when_there_are_no_active_agents(): void
+    {
+        $this->createCommissionScheme();
+
+        $response = $this->actingAs(User::factory()->create())
+            ->get(route('policies.import.template'));
+
+        $response->assertOk();
+
+        $path = sys_get_temp_dir().DIRECTORY_SEPARATOR.'policy_template_'.uniqid().'.xlsx';
+        file_put_contents($path, $response->streamedContent());
+
+        $spreadsheet = IOFactory::load($path);
+
+        $this->assertNull($this->validationFor($spreadsheet->getActiveSheet(), 'D'));
+
+        $spreadsheet->disconnectWorksheets();
+        unlink($path);
+    }
+
+    /**
+     * Localiza la validación de datos aplicada a la columna indicada.
+     */
+    private function validationFor(Worksheet $sheet, string $column): ?DataValidation
+    {
+        foreach ($sheet->getDataValidationCollection() as $validation) {
+            if (str_starts_with((string) $validation->getSqref(), $column.'2:')) {
+                return $validation;
+            }
+        }
+
+        return null;
     }
 
     private function createCommissionScheme(): void
@@ -182,12 +256,13 @@ class PolicyImportTest extends TestCase
 
     /**
      * @param  array<int, array<int, mixed>>  $rows
+     * @param  array<int, string>|null  $headers
      */
-    private function makeSpreadsheet(array $rows): UploadedFile
+    private function makeSpreadsheet(array $rows, ?array $headers = null): UploadedFile
     {
         $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
-        $sheet->fromArray(self::HEADERS, null, 'A1');
+        $sheet->fromArray($headers ?? self::HEADERS, null, 'A1');
         $sheet->fromArray($rows, null, 'A2');
 
         $path = sys_get_temp_dir().DIRECTORY_SEPARATOR.'policy_import_'.uniqid().'.xlsx';

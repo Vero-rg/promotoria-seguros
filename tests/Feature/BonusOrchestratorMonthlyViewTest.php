@@ -6,6 +6,7 @@ use App\Models\Agent;
 use App\Models\Policy;
 use App\Models\Promoter;
 use App\Models\Scheme;
+use App\Models\SchemeTier;
 use App\Models\SchemeVersion;
 use App\Services\BonusCalculators\BonusCalculatorFactory;
 use App\Services\BonusCalculators\BonusCalculatorInterface;
@@ -241,6 +242,62 @@ class BonusOrchestratorMonthlyViewTest extends TestCase
     // 🔧 HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /**
+     * 🟢 El desglose por agente del bono de Conexión se acumula por agente
+     *    cuando el rango abarca varios meses.
+     */
+    public function test_connection_agent_breakdown_is_aggregated_across_months(): void
+    {
+        $this->createConnectionScheme();
+
+        $promoter = Promoter::factory()->create();
+
+        $baseAgent = Agent::factory()->for($promoter, 'promoter')
+            ->create(['created_at' => '2026-01-05', 'name' => 'Agente Base']);
+        $highAgent = Agent::factory()->for($promoter, 'promoter')
+            ->create(['created_at' => '2026-01-06', 'name' => 'Agente Alto']);
+
+        foreach (['2026-01-15', '2026-02-15'] as $issueDate) {
+            Policy::factory()->vida()->pagada()->withPremium(130_000)
+                ->for($baseAgent)->create(['issue_date' => $issueDate]);
+
+            Policy::factory()->vida()->pagada()->withPremium(260_000)
+                ->for($highAgent)->create(['issue_date' => $issueDate]);
+        }
+
+        $result = $this->orchestrator->calculateAll(
+            user: $promoter,
+            periodStart: Carbon::parse('2026-01-01'),
+            periodEnd: Carbon::parse('2026-02-28'),
+            visualRangeStart: Carbon::parse('2026-01-01'),
+            visualRangeEnd: Carbon::parse('2026-02-28'),
+            monthlyView: true,
+        );
+
+        $bonus = $result['results'][0];
+
+        // 2 meses × ($11,578.50 + $28,451.50) — franja 1-2 en cada mes
+        $this->assertSame(80_060.0, (float) $bonus['amount']);
+
+        $breakdown = $bonus['details']['agent_breakdown'];
+        $this->assertCount(2, $breakdown);
+
+        // Ordenado por PCA descendente y acumulado del rango
+        $this->assertSame('Agente Alto', $breakdown[0]['agent_name']);
+        $this->assertSame(517_300.0, (float) $breakdown[0]['pca']);
+        $this->assertSame(56_903.0, (float) $breakdown[0]['amount']);
+        $this->assertSame(11.0, (float) $breakdown[0]['percentage']);
+
+        $this->assertSame('Agente Base', $breakdown[1]['agent_name']);
+        $this->assertSame(257_300.0, (float) $breakdown[1]['pca']);
+        $this->assertSame(23_157.0, (float) $breakdown[1]['amount']);
+
+        // El formato del frontend expone el desglose por agente
+        $frontend = $this->orchestrator->toFrontendFormat($result)[0];
+        $this->assertCount(2, $frontend['agent_breakdown']);
+        $this->assertSame('Agente Alto', $frontend['agent_breakdown'][0]['agent_name']);
+    }
+
     protected function createScheme(string $templateKey, string $frequency): Scheme
     {
         $scheme = Scheme::create([
@@ -259,6 +316,44 @@ class BonusOrchestratorMonthlyViewTest extends TestCase
             'starts_at'    => '2026-01-01',
             'ends_at'      => '2026-12-31',
         ]);
+
+        return $scheme->fresh(['versions.tiers']);
+    }
+
+    /**
+     * Esquema de Conexión con la franja 1-2 (9% base, 11% alta).
+     */
+    protected function createConnectionScheme(): Scheme
+    {
+        $scheme = Scheme::create([
+            'name'         => 'connection',
+            'type'         => 'bonus',
+            'template_key' => 'connection',
+            'target'       => 'promoter',
+            'is_active'    => true,
+            'metric_base'  => 'PCA',
+            'frequency'    => 'mensual',
+        ]);
+
+        $version = SchemeVersion::create([
+            'scheme_id'    => $scheme->id,
+            'version_name' => 'v1.0',
+            'starts_at'    => '2026-01-01',
+            'ends_at'      => '2026-12-31',
+        ]);
+
+        foreach ([[1, 2, 125_000, 9.0], [1, 2, 250_000, 11.0]] as [$minR, $maxR, $minPca, $pct]) {
+            SchemeTier::create([
+                'scheme_version_id'   => $version->id,
+                'conditions'          => [
+                    'min_recruits' => $minR,
+                    'max_recruits' => $maxR,
+                    'min_pca'      => $minPca,
+                ],
+                'agent_percentage'    => 0,
+                'promoter_percentage' => $pct,
+            ]);
+        }
 
         return $scheme->fresh(['versions.tiers']);
     }

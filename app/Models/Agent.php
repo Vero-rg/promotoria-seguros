@@ -31,6 +31,32 @@ class Agent extends Model
         return $this->belongsTo(Promoter::class);
     }
 
+    /**
+     * Nombre corto del agente para desgloses.
+     *
+     * Quita el prefijo del promotor cuando el nombre del agente lo repite
+     * (p. ej. «PRUEBA B - Anticipo mensual · Agente 1» → «Agente 1»).
+     */
+    public function shortName(?string $promoterName = null): string
+    {
+        $name = trim((string) $this->name);
+
+        if ($name === '') {
+            return '';
+        }
+
+        $promoterName = trim((string) ($promoterName ?? $this->promoter?->name ?? ''));
+
+        if ($promoterName === '' || mb_stripos($name, $promoterName) !== 0) {
+            return $name;
+        }
+
+        $stripped = preg_replace('/^[\s·\-:|–—]+/u', '', mb_substr($name, mb_strlen($promoterName)));
+        $stripped = trim((string) $stripped);
+
+        return $stripped !== '' ? $stripped : $name;
+    }
+
     // Relación: Un agente tiene muchas pólizas (ventas)
     public function policies()
     {

@@ -233,6 +233,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
      *
      * PCA = Σ(premium_amount − $1,350) por cada póliza Pagada en el periodo.
      * Las pólizas sin conducto de pago se consideran automáticas.
+     * Los productos excluidos de bonos (PRIMORDIAL) no aportan monto.
      *
      * @return array{cash_pca: float, automatic_pca: float, total_pca: float, cash_count: int, automatic_count: int, total_count: int, automatic_ratio: float}
      */
@@ -241,6 +242,7 @@ class AgentFirstYearProductionCalculator implements BonusCalculatorInterface
         $policies = $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->countableForBonusAmount()
             ->get(['payment_method', 'premium_amount']);
 
         $cashPca = 0.0;
