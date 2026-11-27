@@ -93,7 +93,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         $currentQuarter = 0;
         if (!empty($quarterlyQuota)) {
             $currentQuarter = $this->getCurrentQuarter($periodEnd);
-            $requiredRecruits = $quarterlyQuota["q{$currentQuarter}"] ?? 0;
+            $requiredRecruits = $scheme->quarterlyRecruitsQuota($currentQuarter);
             if ($requiredRecruits > 0) {
                 $actualRecruits = $this->countYearToDateRecruits($user, $periodEnd);
                 $recruitsBar = [
@@ -124,6 +124,23 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         if ($recruitsBar !== null && !$recruitsBar['met']) {
             return $this->notAchieved(
                 reason: "Cuota trimestral Q{$currentQuarter} no cumplida: requiere {$recruitsBar['target']} reclutas, tiene {$recruitsBar['current']}.",
+                pp: $pp,
+                irp: $irp,
+                globalMinIrp: $globalMinIrp,
+                productBars: $productBars,
+                recruitsBar: $recruitsBar,
+            );
+        }
+
+        // 3c. Productos requeridos (fallo temprano con motivo explícito)
+        if (!$productsAllMet) {
+            $missing = collect($productBars)
+                ->filter(fn (array $bar) => !$bar['met'])
+                ->map(fn (array $bar) => $bar['product_type'].' ('.$bar['count'].'/'.$bar['required'].')')
+                ->implode(', ');
+
+            return $this->notAchieved(
+                reason: "Productos requeridos no cumplidos: {$missing}.",
                 pp: $pp,
                 irp: $irp,
                 globalMinIrp: $globalMinIrp,
@@ -257,6 +274,7 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
 
     /**
      * Calcula la Producción Primaria (PP): suma de primas en el periodo.
+     * Los productos excluidos de bonos (PRIMORDIAL) no aportan monto.
      */
     private function calculatePP(Promoter $promoter, Carbon $start, Carbon $end): float
     {
@@ -268,12 +286,14 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         return (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->countableForBonusAmount()
             ->sum('premium_amount');
     }
 
     /**
      * Calcula el IRP (Índice de Retención de Pólizas):
      * (primas activas / primas totales) × 100.
+     * Los productos excluidos de bonos (PRIMORDIAL) no aportan monto.
      */
     private function calculateIRP(Promoter $promoter, Carbon $start, Carbon $end): float
     {
@@ -285,11 +305,13 @@ class PromoterFirstYearProductionCalculator implements BonusCalculatorInterface
         $totalPremiums = (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', '!=', Policy::STATUS_NO_TOMADA)
+            ->countableForBonusAmount()
             ->sum('premium_amount');
 
         $pagadaPremiums = (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->countableForBonusAmount()
             ->sum('premium_amount');
 
         return $totalPremiums > 0

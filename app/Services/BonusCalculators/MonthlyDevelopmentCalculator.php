@@ -83,7 +83,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
         $actualRecruits = null;
         if (!empty($quarterlyQuota)) {
             $currentQuarter = $this->getCurrentQuarter($periodEnd);
-            $requiredRecruits = $quarterlyQuota["q{$currentQuarter}"] ?? 0;
+            $requiredRecruits = $scheme->quarterlyRecruitsQuota($currentQuarter);
             if ($requiredRecruits > 0) {
                 $actualRecruits = $this->countYearToDateRecruits($user, $periodEnd);
             }
@@ -123,6 +123,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
 
         $totalAmount = 0.0;
         $matchedAgents = [];
+        $breakdown = [];
         $bestTierIndex = null;
         $bestTierData = null;
         $bestPercentage = 0.0;
@@ -130,6 +131,20 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
         foreach ($agents as $agent) {
             $agentPca   = $this->calculateAgentPca($agent, $periodStart, $periodEnd);
             $tenureMonth = $this->calculateAgentTenureMonth($agent, $periodEnd);
+
+            $row = [
+                'agent_id'     => $agent->id,
+                'agent_name'   => (string) $agent->name,
+                'agent_label'  => $agent->shortName($user->name),
+                'pca'          => round($agentPca, 2),
+                'tenure_month' => $tenureMonth,
+                'percentage'   => null,
+                'base_amount'  => 0.0,
+                'fixed_amount' => null,
+                'amount'       => 0.0,
+                'qualified'    => false,
+                'note'         => 'No califica para ningún tramo',
+            ];
 
             foreach ($tiers as $index => $tier) {
                 $conditions = $tier->conditions ?? [];
@@ -141,14 +156,26 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
 
                 if ($agentPca >= $minPca && $tenureMonth >= $minMonth && $tenureMonth <= $maxMonth) {
                     $pct = (float) ($tier->promoter_percentage ?? 0);
-                    $agentAmount = round($agentPca * ($pct / 100), 2);
+                    $baseAmount = round($agentPca * ($pct / 100), 2);
 
                     // Sumar fixed_amount si existe
+                    $fixedAmount = 0.0;
                     if (!empty($tier->fixed_amount) && (float) $tier->fixed_amount > 0) {
-                        $agentAmount += (float) $tier->fixed_amount;
+                        $fixedAmount = (float) $tier->fixed_amount;
                     }
 
+                    $agentAmount = round($baseAmount + $fixedAmount, 2);
+
                     $totalAmount += $agentAmount;
+
+                    $row = array_merge($row, [
+                        'percentage'   => $pct,
+                        'base_amount'  => $baseAmount,
+                        'fixed_amount' => $fixedAmount > 0 ? $fixedAmount : null,
+                        'amount'       => $agentAmount,
+                        'qualified'    => true,
+                        'note'         => null,
+                    ]);
 
                     $matchedAgents[] = [
                         'agent_id'      => $agent->id,
@@ -157,7 +184,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                         'tenure_month'  => $tenureMonth,
                         'tier_index'    => $index,
                         'percentage'    => $pct,
-                        'amount'        => round($agentAmount, 2),
+                        'amount'        => $agentAmount,
                     ];
 
                     // Registrar el mejor tier para el resumen
@@ -170,7 +197,11 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                     break; // Un agente solo puede calificar a UN tier (el primero que cumpla)
                 }
             }
+
+            $breakdown[] = $row;
         }
+
+        $breakdown = collect($breakdown)->sortByDesc('pca')->values()->all();
 
         // ── 5. Resultado ────────────────────────────────────────────────
         if (empty($matchedAgents)) {
@@ -182,6 +213,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                 requiredRecruits: $requiredRecruits ?? null,
                 totalAgents: $agents->count(),
                 matchedAgents: 0,
+                agentBreakdown: $breakdown,
             );
         }
 
@@ -229,6 +261,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                 'current_quarter'        => $currentQuarter ?? null,
                 'matched_agents'         => $matchedAgents,
                 'total_agents_evaluated' => $agents->count(),
+                'agent_breakdown'        => $breakdown,
                 'metrics'                => [
                     'min_pca' => (float) ($matchedAgents[0]['pca'] ?? 0),
                 ],
@@ -243,6 +276,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
     /**
      * Calcula la eficiencia al cobro del promotor como:
      * (suma de primas de pólizas ACTIVAS / suma de primas totales) × 100.
+     * Los productos excluidos de bonos (PRIMORDIAL) no aportan monto.
      */
     private function calculateCollectionEfficiency(
         Promoter $promoter,
@@ -258,11 +292,13 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
         $totalPremiums = (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$periodStart, $periodEnd])
             ->where('status', '!=', Policy::STATUS_NO_TOMADA)
+            ->countableForBonusAmount()
             ->sum('premium_amount');
 
         $pagadaPremiums = (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$periodStart, $periodEnd])
             ->where('status', Policy::STATUS_PAGADA)
+            ->countableForBonusAmount()
             ->sum('premium_amount');
 
         return $totalPremiums > 0
@@ -313,13 +349,15 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
      * Calcula el PCA individual de un agente en el periodo.
      *
      * PCA = PNA − $1,350 por cada póliza (mínimo $0 por póliza).
-     * Solo se consideran pólizas con estatus Pagada.
+     * Solo se consideran pólizas con estatus Pagada y productos que aportan
+     * monto a los bonos (PRIMORDIAL queda fuera).
      */
     private function calculateAgentPca(Agent $agent, Carbon $start, Carbon $end): float
     {
         $policies = $agent->policies()
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->countableForBonusAmount()
             ->get();
 
         return $policies->sum(fn($p) => max(0, (float) $p->premium_amount - Policy::PCA_DEDUCTION));
@@ -363,6 +401,8 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
 
     /**
      * Retorna un resultado estándar de «no alcanzado».
+     *
+     * @param  array<int, array>  $agentBreakdown
      */
     private function notAchieved(
         string $reason,
@@ -372,6 +412,7 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
         ?int $requiredRecruits = null,
         int $totalAgents = 0,
         int $matchedAgents = 0,
+        array $agentBreakdown = [],
     ): array {
         return [
             'is_achieved' => false,
@@ -413,6 +454,8 @@ class MonthlyDevelopmentCalculator implements BonusCalculatorInterface
                 'reason'                => $reason,
                 'collection_efficiency' => $collectionEfficiency,
                 'quarterly_recruits'    => $quarterlyRecruits,
+                'total_agents_evaluated' => $totalAgents,
+                'agent_breakdown'       => $agentBreakdown,
                 'metrics'               => ['min_pca' => 0.0],
             ],
         ];

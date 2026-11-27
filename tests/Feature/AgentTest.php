@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Agent;
+use App\Models\Promoter;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -33,5 +34,23 @@ class AgentTest extends TestCase
         ])->assertRedirect(route('directorio'));
 
         $this->assertTrue($agent->fresh()->cedular_tax_enabled);
+    }
+
+    /**
+     * El nombre corto quita el prefijo del promotor para los desgloses.
+     */
+    public function test_short_name_strips_the_promoter_prefix(): void
+    {
+        $promoter = Promoter::factory()->create(['name' => 'PRUEBA B - Anticipo mensual']);
+
+        $agent = Agent::factory()->for($promoter, 'promoter')->create([
+            'name' => 'PRUEBA B - Anticipo mensual · Agente 3',
+        ]);
+
+        $this->assertSame('Agente 3', $agent->shortName($promoter->name));
+        $this->assertSame('Agente 3', $agent->shortName());
+
+        $unrelated = Agent::factory()->for($promoter, 'promoter')->create(['name' => 'Juan Pérez']);
+        $this->assertSame('Juan Pérez', $unrelated->shortName($promoter->name));
     }
 }

@@ -22,7 +22,7 @@ const props = defineProps({
             billing_retention: null,
             status: 'activa',
             product_type: '',
-            payment_method: 'Efectivo',
+            payment_method: 'Automático',
         }),
     },
     agents: Array,
@@ -45,7 +45,7 @@ const form = useForm({
     billing_retention: props.policy.billing_retention ?? null,
     status: props.policy.status,
     product_type: props.policy.product_type || '',
-    payment_method: props.policy.payment_method || 'Efectivo',
+    payment_method: props.policy.payment_method || 'Automático',
 });
 
 // Productos disponibles ordenados alfabéticamente

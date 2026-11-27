@@ -4,7 +4,9 @@
  *
  * Anticipos mensuales de los bonos que los permiten. Muestra, por mes:
  * acumulado del trimestre, porcentaje alcanzado y el anticipo entregado
- * (calculado automáticamente y editable).
+ * (calculado automáticamente y editable). Cuando el porcentaje sube respecto
+ * al mes anterior, desglosa el anticipo en mes al porcentaje vigente,
+ * ajuste retroactivo y total.
  */
 import { router } from '@inertiajs/vue3';
 import { Check, Pencil, X } from 'lucide-vue-next';
@@ -118,14 +120,14 @@ const save = (row) => {
                         <span class="truncate text-xs font-medium text-gray-800">{{ row.label }}</span>
                         <span
                             v-if="row.percentage !== null && row.percentage !== undefined"
-                            class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                            class="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold"
                             :class="row.unlocked ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
                         >
                             {{ row.percentage }}%
                         </span>
                         <!-- Ventas del mes (PCA del agente / PP del equipo) -->
                         <span
-                            class="inline-flex items-center rounded border border-amber-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-600"
+                            class="inline-flex items-center rounded border border-amber-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-gray-600"
                             :title="`${row.metric_label} vendida en ${row.label}`"
                         >
                             {{ row.metric_label }} {{ formatCurrency(row.month_metric) }}
@@ -168,7 +170,7 @@ const save = (row) => {
                     </div>
                 </div>
 
-                <div class="flex items-center justify-between text-[10px] text-gray-500">
+                <div class="flex items-center justify-between text-[11px] text-gray-500">
                     <span>
                         Acumulado: <span class="font-medium text-gray-700">{{ formatCurrency(row.cumulative_amount) }}</span>
                         <template v-if="row.is_override"> · Calculado {{ formatCurrency(row.calculated) }} </template>
@@ -177,6 +179,28 @@ const save = (row) => {
                         Incluye {{ formatCurrency(row.previous_total) }} de meses anteriores
                     </span>
                     <span v-else-if="row.below_minimum" class="text-amber-700"> No alcanzó el mínimo ({{ formatCurrency(row.minimum) }}) </span>
+                </div>
+
+                <!-- Desglose del ajuste retroactivo: mes al % vigente + diferencia de meses anteriores -->
+                <div
+                    v-if="row.retroactive_amount > 0"
+                    class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-md border border-amber-200/70 bg-white/80 px-2 py-1.5 text-xs leading-tight"
+                >
+                    <span class="text-gray-600">
+                        Mes al {{ row.percentage }}%:
+                        <span class="font-medium text-gray-700">{{ formatCurrency(row.month_amount) }}</span>
+                    </span>
+                    <span class="font-semibold text-amber-500">+</span>
+                    <span class="text-amber-700">
+                        Retroactivo<template v-if="row.percentage_delta > 0">
+                            {{ row.previous_percentage }}% → {{ row.percentage }}% (+{{ row.percentage_delta }}%)</template
+                        >:
+                        <span class="font-medium">{{ formatCurrency(row.retroactive_amount) }}</span>
+                    </span>
+                    <span class="font-semibold text-gray-400">=</span>
+                    <span class="text-gray-700">
+                        Total: <span class="font-semibold">{{ formatCurrency(row.calculated) }}</span>
+                    </span>
                 </div>
             </div>
         </div>

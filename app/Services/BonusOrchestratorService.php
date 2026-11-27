@@ -614,6 +614,70 @@ class BonusOrchestratorService
             ];
         }
 
+        // ── Desglose por agente acumulado del rango (bono de Conexión) ──
+        $agentRows = [];
+
+        foreach ($months as $entry) {
+            foreach ($entry['result']['details']['agent_breakdown'] ?? [] as $row) {
+                $agentId = $row['agent_id'] ?? null;
+
+                if ($agentId === null) {
+                    continue;
+                }
+
+                $agentRows[$agentId] ??= [
+                    'agent_id'     => $agentId,
+                    'agent_name'   => $row['agent_name'] ?? '',
+                    'agent_label'  => $row['agent_label'] ?? ($row['agent_name'] ?? ''),
+                    'pca'          => 0.0,
+                    'tenure_month' => $row['tenure_month'] ?? null,
+                    'qualified'    => false,
+                    'percentage'   => null,
+                    'base_amount'  => 0.0,
+                    'fixed_amount' => null,
+                    'amount'       => 0.0,
+                    'note'         => $row['note'] ?? null,
+                ];
+
+                if (($row['tenure_month'] ?? null) !== null) {
+                    $agentRows[$agentId]['tenure_month'] = (int) $row['tenure_month'];
+                }
+
+                $agentRows[$agentId]['note'] = $row['note'] ?? null;
+
+                $agentRows[$agentId]['pca'] += (float) ($row['pca'] ?? 0);
+                $agentRows[$agentId]['amount'] += (float) ($row['amount'] ?? 0);
+                $agentRows[$agentId]['base_amount'] += (float) ($row['base_amount'] ?? 0);
+
+                if (!empty($row['fixed_amount'])) {
+                    $agentRows[$agentId]['fixed_amount'] = round(
+                        (float) ($agentRows[$agentId]['fixed_amount'] ?? 0) + (float) $row['fixed_amount'],
+                        2,
+                    );
+                }
+
+                if (($row['percentage'] ?? null) !== null) {
+                    $agentRows[$agentId]['percentage'] = (float) $row['percentage'];
+                }
+
+                if (!empty($row['qualified'])) {
+                    $agentRows[$agentId]['qualified'] = true;
+                }
+            }
+        }
+
+        if ($agentRows !== []) {
+            $bestDetails['agent_breakdown'] = collect($agentRows)
+                ->map(fn (array $row) => array_merge($row, [
+                    'pca'         => round($row['pca'], 2),
+                    'base_amount' => round($row['base_amount'], 2),
+                    'amount'      => round($row['amount'], 2),
+                ]))
+                ->sortByDesc('pca')
+                ->values()
+                ->all();
+        }
+
         return [
             'is_achieved' => $achievedCount > 0,
             'amount'      => round($totalAmount, 2),
@@ -688,6 +752,20 @@ class BonusOrchestratorService
         $result['tier_index']        = null;
         $result['tier_data']         = null;
         $result['progress_breakdown'] = $breakdown;
+
+        // El desglose por agente no debe mostrar montos que no se pagarán.
+        if (!empty($result['details']['agent_breakdown'])) {
+            $result['details']['agent_breakdown'] = array_map(
+                fn (array $row) => array_merge($row, [
+                    'percentage'   => null,
+                    'base_amount'  => 0.0,
+                    'fixed_amount' => null,
+                    'amount'       => 0.0,
+                ]),
+                $result['details']['agent_breakdown'],
+            );
+        }
+
         $evaluation['result']        = $result;
 
         foreach ($evaluation['months'] as $index => $entry) {
@@ -834,6 +912,8 @@ class BonusOrchestratorService
                 'next_level'             => $result['next_level'] ?? null,
                 // ── Anticipos mensuales (bonos que los permiten) ──
                 'advances'               => $result['advances'] ?? null,
+                // ── Desglose por agente (bono de Conexión) ──
+                'agent_breakdown'        => $result['details']['agent_breakdown'] ?? null,
                 // ── Informativo: composición del pago efectivo / automático ──
                 'payment_info'           => $result['details']['payment_info'] ?? null,
             ];

@@ -686,8 +686,11 @@ class DashboardController extends Controller
     {
         $total = 0;
 
-        // PCA total del periodo (base para proyecciones porcentuales)
-        $totalPCA = $policies->sum(fn ($p) => $p->pcaAmount());
+        // PCA total del periodo (base para proyecciones porcentuales).
+        // Los productos excluidos de bonos (PRIMORDIAL) no aportan monto.
+        $totalPCA = $policies
+            ->filter(fn ($policy) => Policy::isCountableForBonusAmount($policy->product_type))
+            ->sum(fn ($policy) => $policy->pcaAmount());
 
         foreach ($bonusSchemes as $scheme) {
             $latestVersion = $scheme->versions()->orderByDesc('starts_at')->first();

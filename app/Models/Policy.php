@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -27,6 +28,15 @@ class Policy extends Model
 
     /** Deducción fija sobre el PNA para obtener el PCA (por póliza). */
     public const PCA_DEDUCTION = 1350.00;
+
+    /**
+     * Productos cuyo monto NO participa en el cálculo de bonos.
+     *
+     * Estas pólizas solo aportan en comisiones y en el conteo de requisitos
+     * de producto (requires_product), pero su prima no suma a PP, PCA, PNA
+     * ni a los índices ponderados por monto de ningún bono.
+     */
+    public const BONUS_AMOUNT_EXCLUDED_PRODUCTS = ['PRIMORDIAL'];
 
     public const PAYMENT_METHOD_CASH = 'Efectivo';
 
@@ -121,6 +131,31 @@ class Policy extends Model
     }
 
     // ─── Montos ─────────────────────────────────────
+
+    /**
+     * Indica si el monto de una póliza participa en el cálculo de bonos.
+     */
+    public static function isCountableForBonusAmount(?string $productType): bool
+    {
+        return ! in_array(
+            mb_strtoupper(trim((string) $productType)),
+            self::BONUS_AMOUNT_EXCLUDED_PRODUCTS,
+            true,
+        );
+    }
+
+    /**
+     * Excluye las pólizas cuyo monto no participa en el cálculo de bonos.
+     */
+    public function scopeCountableForBonusAmount(Builder $query): Builder
+    {
+        $placeholders = implode(', ', array_fill(0, count(self::BONUS_AMOUNT_EXCLUDED_PRODUCTS), '?'));
+
+        return $query->whereRaw(
+            "UPPER(TRIM(COALESCE(product_type, ''))) NOT IN ({$placeholders})",
+            array_map('mb_strtoupper', self::BONUS_AMOUNT_EXCLUDED_PRODUCTS),
+        );
+    }
 
     /**
      * Prima Computable Acumulada: PNA menos la deducción fija por póliza.

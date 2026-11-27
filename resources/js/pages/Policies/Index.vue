@@ -10,15 +10,14 @@ const STATUS_OPTIONS = ['Activa', 'No tomada', 'Pagada'];
 const IMPORT_COLUMNS = [
     { label: 'Número de póliza', required: true, example: '878901' },
     { label: 'Cliente', required: false, example: 'Juan Pérez' },
-    { label: 'Producto', required: true, example: 'METALIFE' },
-    { label: 'Agente', required: true, example: 'Nombre del agente' },
+    { label: 'Producto', required: true, example: 'Selecciona de la lista' },
+    { label: 'Agente', required: true, example: 'Selecciona de la lista' },
     { label: 'Fecha de emisión', required: true, example: '15/07/2026' },
     { label: 'PNA', required: true, example: '90000' },
-    { label: '% Retención ISR', required: true, example: '10' },
     { label: '% Impuesto cedular', required: false, example: '0' },
     { label: '% Costo facturación', required: true, example: '5' },
-    { label: 'Estatus', required: false, example: 'Activa' },
-    { label: 'Conducto de pago', required: false, example: 'Efectivo' },
+    { label: 'Estatus', required: false, example: 'Selecciona de la lista' },
+    { label: 'Conducto de pago', required: false, example: 'Selecciona de la lista' },
 ];
 
 const props = defineProps({
@@ -207,6 +206,11 @@ const submitImport = () => {
                            {{ row.client_name || '—' }}
                        </template>
                    </el-table-column>
+                   <el-table-column prop="product_type" label="Producto" min-width="130" sortable>
+                       <template #default="{ row }">
+                           {{ row.product_type || '—' }}
+                       </template>
+                   </el-table-column>
                    <el-table-column prop="agent.name" label="Agente" min-width="160" sortable>
                        <template #default="{ row }">
                            {{ row.agent?.name || 'N/A' }}
@@ -270,7 +274,9 @@ const submitImport = () => {
             <div class="space-y-4">
                 <div class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                     Descarga la plantilla, captura una póliza por fila y súbela aquí. Las comisiones de agente y
-                    promotor se calculan automáticamente con base en el PCA (PNA − $1,350).
+                    promotor se calculan automáticamente con base en el PCA (PNA − $1,350) y la retención de ISR
+                    se aplica siempre al 10%. En las columnas Producto, Agente, Estatus y Conducto de pago elige
+                    el valor de la lista desplegable.
                 </div>
 
                 <a

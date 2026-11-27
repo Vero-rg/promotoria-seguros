@@ -95,6 +95,11 @@ Only the first-year production bonuses may pay **monthly advances** (`requires_a
 - Each month is evaluated over the **cumulative** quarter up to that month.
 - `advance(month) = cumulative_amount(month) − advances already paid`.
   So when the tier rises, the next advance includes the retroactive difference.
+- Each month is broken down into `month_amount` (sales of the month at the
+  current percentage) + `retroactive_amount` (rest of the calculated advance:
+  percentage increase over the previous months' base plus any carried amounts)
+  = `calculated`. `previous_percentage` / `percentage_delta` describe the tier
+  jump; the breakdown is `null` on months with no retroactivity.
 - `anticipos_config.month_N_min` gates the advance of month N by cumulative metric;
   if the minimum is not met that month the advance is 0 and carries to the next month.
 - Amounts can be overridden from the panel and are stored in `bonus_advances`
@@ -148,6 +153,23 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 
 ---
 
+## Global Product Rule (bonus amounts)
+
+`PRIMORDIAL` policies **never contribute money to a bonus**. Their premium is excluded
+from PP, PCA, PNA, IRP and every amount-weighted index in all calculators.
+
+- Implemented with `Policy::BONUS_AMOUNT_EXCLUDED_PRODUCTS` and the query scope
+  `Policy::scopeCountableForBonusAmount()` (case-insensitive on `product_type`).
+- Applied in: `AgentFirstYearProductionCalculator` (quarterly PCA and channel counts),
+  `PromoterFirstYearProductionCalculator` (PP + IRP), `AdditionalAgentsCalculator` (team PP),
+  `MonthlyDevelopmentCalculator` (agent PCA + collection efficiency) and
+  `ConnectionBonusCalculator` (recruit PCA). `ActivityRatioCalculator` was already vida-only.
+- They **still count** for `requires_product` requirements and for the policy counts that
+  feed bonus rules (e.g. the 60% automatic-channel rule only counts eligible policies).
+- Commissions are unaffected: `PRIMORDIAL` keeps its commission percentages.
+
+---
+
 ## Calculator Details
 
 ### 1. AgentFirstYearProductionCalculator
@@ -159,7 +181,7 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
   - **New format** (since 2026-07-15): `[{product_type: "PRIMORDIAL", min_count: 3}]` — each product has its own minimum count. ALL must be met (AND logic).
   - **Legacy format**: `["PRIMORDIAL"]` + `min_product_count` column — maintained for backward compat.
 - Uses `ProductAliasResolver` to resolve "Vida" → METALIFE + PERFECTLIFE when counting policies.
-- Calculates the quarterly PCA per policy as `MAX(0, premium_amount − 1,350)` and splits it by `payment_method`:
+- Calculates the quarterly PCA per policy as `MAX(0, premium_amount − 1,350)` and splits it by `payment_method` (PRIMORDIAL premiums are excluded from the PCA):
   - **Cash PCA** (`Efectivo`) uses `agent_percentage` (**Bono Efectivo %**).
   - **Automatic PCA** (`Automático`, and any policy without a channel) uses `agent_automatic_percentage` (**Bono Automático %**).
 - Evaluates tiers by `min_pca` descending. Each portion is evaluated on its own: `cash_pca × cash%` + `automatic_pca × automatic%`, where each percentage comes from the tier that portion reaches.
@@ -183,9 +205,13 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 
 **Rules:**
 - Only applies to promoters.
-- Calculates PP (Primary Production) = sum of premiums of all agents under the promoter.
-- Calculates IRP (Index of Policy Retention) = (active policies / total policies) × 100.
+- Calculates PP (Primary Production) = sum of premiums of all agents under the promoter (PRIMORDIAL premiums excluded).
+- Calculates IRP (Index of Policy Retention) = (active policies / total policies) × 100 (PRIMORDIAL premiums excluded from both sides).
 - Validates global rules: IRP ≥ `min_irp`, quarterly recruitment quota, product requirements.
+- The recruitment quota comes from `Scheme::quarterlyRecruitsQuota($quarter)`, which accepts both
+  `{"q1": 2}` and `{"1": 2}` key formats; the count is year-to-date up to the evaluated quarter.
+- Missing required products fail early with an explicit reason
+  (`Productos requeridos no cumplidos: Primordial (2/3).`).
 - Evaluates tiers sorted by `promoter_percentage` descending.
 - Payout: PP × `promoter_percentage` from the matching tier.
 
@@ -198,10 +224,19 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 
 **Rules:**
 - Only applies to promoters.
-- Calculates individual PCA for each recruited agent.
-- Uses a **double-entry matrix**: each recruit must individually meet `min_pca`; the count of qualifying recruits determines the bracket.
-- Tiers evaluated by `promoter_percentage` descending.
-- Payout: uses the `calculateAmount` method (typically a fixed amount per qualifying agent).
+- **Recruits accumulate through the year:** for any period, every agent created between January 1 of
+  the period's year and the period end is considered (agents from previous years do not count).
+- Each agent qualifies with its **PCA of the evaluated period** (not accumulated) when it reaches the
+  lowest `min_pca` of the matrix.
+- The number of **qualified** agents selects the recruit band (`min_recruits` / `max_recruits`:
+  1-2, 3-4, 5+).
+- **Individual payout:** each agent pays `own PCA × the percentage of the column its PCA reaches`
+  inside that band (e.g. one agent at base PCA → 9%, another at high PCA → 11% in the same band).
+  The `fixed_amount` of the applied tier is added per agent.
+- `details.agent_breakdown` lists every recruited agent (`agent_name`, `agent_label`, `pca`,
+  `percentage`, `base_amount`, `fixed_amount`, `amount`, `qualified`, `note`). The frontend renders it
+  under the bonus card and monthly ranges aggregate the rows per agent.
+- `earned.percentage` is `null` (there is no single percentage) and `next_level` is omitted.
 
 **Tier conditions:** `{"min_recruits": 3, "max_recruits": 4, "min_pca": 30000}`
 
@@ -212,12 +247,18 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 
 **Rules:**
 - Only applies to promoters.
-- Validates global rules: collection efficiency ≥ `min_collection_efficiency`, quarterly recruitment quota.
+- Validates global rules: collection efficiency ≥ `min_collection_efficiency`, quarterly recruitment quota
+  (`Scheme::quarterlyRecruitsQuota($quarter)`, year-to-date count).
 - For each agent under the promoter:
   - Calculates individual PCA in the period.
   - Calculates tenure (months since `created_at`).
 - Tiers match on: PCA ≥ `min_pca` AND tenure in `[min_month, max_month]`.
-- Payout: Σ (agent PCA × `promoter_percentage`).
+- **Individual payout:** each agent pays `own PCA × the percentage of the tier it matches`
+  (only one tier per agent); `fixed_amount` is added per agent.
+- `details.agent_breakdown` lists every evaluated agent (`agent_label`, `pca`, `tenure_month`,
+  `percentage`, `base_amount`, `fixed_amount`, `amount`, `qualified`, `note`). The frontend renders it
+  under the bonus card and monthly ranges aggregate the rows per agent.
+- `earned.percentage` is `null` (no single percentage) and `next_level` is omitted.
 
 **Tier conditions:** `{"min_pca": 15000, "min_month": 0, "max_month": 12}`
 
@@ -279,6 +320,10 @@ Schemes can declare `dependency_scheme_id` (references another scheme's `templat
 When a scheme requires "Vida" (e.g., `requires_product: ["Vida"]`), the calculators count policies of both METALIFE and PERFECTLIFE toward the requirement. "PRIMORDIAL" is not aliased — it stands alone.
 
 Used by: `AgentFirstYearProductionCalculator`, `PromoterFirstYearProductionCalculator`.
+
+**Agent labels in breakdowns:** `Agent::shortName($promoterName)` strips the promoter prefix from the
+agent name (e.g. «PRUEBA B - Anticipo mensual · Agente 1» → «Agente 1») so per-agent breakdowns show the
+agent identity instead of repeating the promoter name.
 
 ---
 
@@ -480,6 +525,8 @@ trait ProductAliasResolver
 - Payout: `PP × (promoter_percentage / 100)`
 
 ### ConnectionBonusCalculator
-- Individual PCA = `sum('premium_amount')` per recruit (not max(0, premium - 1350))
-- Each tier's min_pca filters recruits individually
-- Payout: `totalQualifiedPca × (promoter_percentage / 100)`
+- Recruits accumulate through the year: agents created between Jan 1 and the period end
+- Individual PCA = `Σ max(0, premium_amount − 1,350)` per recruit (PRIMORDIAL excluded)
+- The number of qualified agents selects the recruit band; each agent pays with the percentage of
+  the column its own PCA reaches (plus `fixed_amount` per agent)
+- `details.agent_breakdown` exposes the per-agent rows

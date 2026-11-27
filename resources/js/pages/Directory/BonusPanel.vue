@@ -22,11 +22,13 @@
  *       earned: { percentage, fixed_amount, amount, note },
  *       next_level: { label, requirement, percentage, gaps[] }
  *       advances: { months[], total, calculated_total } (bonos con anticipos),
+ *       agent_breakdown: Array (Conexión y Desarrollo Mensual: PCA, % y monto por agente),
  *       payment_info: { cash_pca, automatic_pca, cash_percentage, automatic_percentage, automatic_ratio, applied_percentage, strategy }
  *   }
  */
 import { ref } from 'vue';
 import BonusAdvancesTable from './BonusAdvancesTable.vue';
+import BonusAgentBreakdown from './BonusAgentBreakdown.vue';
 import BonusMatrixModal from './BonusMatrixModal.vue';
 import BonusPaymentInfo from './BonusPaymentInfo.vue';
 import MonthlyBonusBreakdown from './MonthlyBonusBreakdown.vue';
@@ -144,6 +146,11 @@ const earnedLabel = (bonus) => {
 const isLockedByDependency = (bonus, index) => {
     return bonus.depends_on_previous && index > 0 && !props.bonuses[index - 1]?.unlocked;
 };
+
+/**
+ * Bonos que se pagan de forma individual por agente (Conexión, Desarrollo Mensual).
+ */
+const esBonoPorAgente = (bonus) => ['connection', 'monthly_development'].includes(bonus.template_key);
 
 /**
  * Retorna las condiciones efectivas de un bono, inyectando una barra
@@ -286,7 +293,7 @@ const hasEffectiveConditions = (bonus) => {
 
                 <!-- Pago obtenido: nivel, porcentaje y monto -->
                 <div v-if="bonus.unlocked && earnedLabel(bonus)" class="flex items-center justify-between text-xs">
-                    <span class="text-gray-500">{{ bonus.monthly_total ? 'Total del periodo' : 'Nivel alcanzado' }}</span>
+                    <span class="text-gray-500">{{ bonus.monthly_total ? 'Total del periodo' : (esBonoPorAgente(bonus) ? 'Total del bono' : 'Nivel alcanzado') }}</span>
                     <span class="font-semibold text-green-700">
                         {{ earnedLabel(bonus) }}
                     </span>
@@ -309,6 +316,9 @@ const hasEffectiveConditions = (bonus) => {
 
                 <!-- Informativo: composición del pago (efectivo / automático) -->
                 <BonusPaymentInfo v-if="bonus.payment_info" :info="bonus.payment_info" />
+
+                <!-- Desglose por agente (Conexión / Desarrollo Mensual) -->
+                <BonusAgentBreakdown v-if="bonus.agent_breakdown?.length" :agents="bonus.agent_breakdown" />
 
                 <!-- Anticipos mensuales (bonos de 1er año de vida) -->
                 <BonusAdvancesTable
@@ -398,7 +408,7 @@ const hasEffectiveConditions = (bonus) => {
 
                 <!-- Pago obtenido: nivel, porcentaje y monto -->
                 <div v-if="bonus.unlocked && earnedLabel(bonus)" class="flex items-center justify-between text-xs">
-                    <span class="text-gray-500">{{ bonus.monthly_total ? 'Total del periodo' : 'Nivel alcanzado' }}</span>
+                    <span class="text-gray-500">{{ bonus.monthly_total ? 'Total del periodo' : (esBonoPorAgente(bonus) ? 'Total del bono' : 'Nivel alcanzado') }}</span>
                     <span class="font-semibold text-green-700">
                         {{ earnedLabel(bonus) }}
                     </span>
@@ -421,6 +431,9 @@ const hasEffectiveConditions = (bonus) => {
 
                 <!-- Informativo: composición del pago (efectivo / automático) -->
                 <BonusPaymentInfo v-if="bonus.payment_info" :info="bonus.payment_info" />
+
+                <!-- Desglose por agente (Conexión / Desarrollo Mensual) -->
+                <BonusAgentBreakdown v-if="bonus.agent_breakdown?.length" :agents="bonus.agent_breakdown" />
 
                 <!-- Anticipos mensuales (bonos de 1er año de vida) -->
                 <BonusAdvancesTable

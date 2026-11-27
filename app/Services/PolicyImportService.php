@@ -23,7 +23,6 @@ class PolicyImportService
         'agent_name' => 'Agente',
         'issue_date' => 'Fecha de emisión',
         'premium_amount' => 'PNA',
-        'isr_retention' => '% Retención ISR',
         'cedular_tax' => '% Impuesto cedular',
         'billing_retention' => '% Costo facturación',
         'status' => 'Estatus',
@@ -36,9 +35,13 @@ class PolicyImportService
         'agent_name',
         'issue_date',
         'premium_amount',
-        'isr_retention',
         'billing_retention',
     ];
+
+    /**
+     * La retención de ISR no se captura en la plantilla: siempre se aplica el 10%.
+     */
+    private const DEFAULT_ISR_RETENTION = 10.0;
 
     /**
      * Encabezados aceptados por columna (ya normalizados: sin acentos ni signos).
@@ -51,7 +54,6 @@ class PolicyImportService
         'issue_date' => ['fechadeemision', 'fechaemision', 'fecha'],
         'premium_amount' => ['pna', 'prima', 'primatotal', 'primanetaacumulada'],
         'billing_retention' => ['costofacturacion', 'costodefacturacion', 'facturacion'],
-        'isr_retention' => ['retencionisr', 'isr'],
         'cedular_tax' => ['impuestocedular', 'cedular'],
         'status' => ['estatus', 'status'],
         'payment_method' => ['conductodepago', 'conducto', 'formadepago', 'metododepago', 'pagoconducto'],
@@ -134,11 +136,6 @@ class PolicyImportService
                 $rowErrors[] = 'el costo de facturación es obligatorio.';
             }
 
-            $isrRetention = $this->parseNumber($data['isr_retention'] ?? null);
-            if ($isrRetention === null) {
-                $rowErrors[] = 'la retención de ISR es obligatoria.';
-            }
-
             // The cedular tax is optional: default to 5% when the agent has it enabled, otherwise 0
             $cedularTax = $this->parseNumber($data['cedular_tax'] ?? null)
                 ?? ($agent?->cedular_tax_enabled ? 5.0 : 0.0);
@@ -175,7 +172,7 @@ class PolicyImportService
                     'commission_amount' => round($pca * ($commission['agent_percentage'] / 100), 2),
                     'promoter_commission_percentage' => $commission['promoter_percentage'],
                     'promoter_commission_amount' => round($pca * ($commission['promoter_percentage'] / 100), 2),
-                    'isr_retention' => $isrRetention,
+                    'isr_retention' => self::DEFAULT_ISR_RETENTION,
                     'cedular_tax' => $cedularTax,
                     'billing_retention' => $billingRetention,
                     'status' => $status,

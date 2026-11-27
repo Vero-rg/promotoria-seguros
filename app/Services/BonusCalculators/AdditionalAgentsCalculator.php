@@ -254,6 +254,7 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
     /**
      * Calcula la PP total (Prima Pagada) de todos los agentes activos/en periodo
      * del promotor en el rango de fechas.
+     * Los productos excluidos de bonos (PRIMORDIAL) no aportan monto.
      */
     private function calculateTotalPP(Promoter $promoter, Carbon $start, Carbon $end): float
     {
@@ -265,6 +266,7 @@ class AdditionalAgentsCalculator implements BonusCalculatorInterface
         return (float) Policy::whereIn('agent_id', $agentIds)
             ->whereBetween('issue_date', [$start, $end])
             ->where('status', Policy::STATUS_PAGADA)
+            ->countableForBonusAmount()
             ->sum('premium_amount');
     }
 

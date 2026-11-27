@@ -73,6 +73,16 @@ class BonusAdvanceServiceTest extends TestCase
         // Ventas del mes: PCA vendida en cada mes y acumulada hasta ese mes
         $this->assertSame([200_000.0, 200_000.0, 200_000.0], array_map('floatval', array_column($result['months'], 'month_metric')));
         $this->assertSame([200_000.0, 400_000.0, 600_000.0], array_map('floatval', array_column($result['months'], 'metric')));
+
+        // Desglose: julio sin retroactivo; agosto y septiembre separan mes + retroactivo
+        $this->assertNull($result['months'][0]['retroactive_amount']);
+        $this->assertSame(40_000.0, $result['months'][1]['month_amount']);
+        $this->assertSame(12_000.0, $result['months'][1]['retroactive_amount']);
+        $this->assertSame(14.0, $result['months'][1]['previous_percentage']);
+        $this->assertSame(6.0, $result['months'][1]['percentage_delta']);
+        $this->assertSame(52_000.0, $result['months'][2]['month_amount']);
+        $this->assertSame(24_000.0, $result['months'][2]['retroactive_amount']);
+        $this->assertSame(6.0, $result['months'][2]['percentage_delta']);
     }
 
     /**
@@ -151,6 +161,11 @@ class BonusAdvanceServiceTest extends TestCase
         $this->assertSame(120_000.0, (float) $result['months'][0]['month_metric']);
         $this->assertSame(100_000.0, (float) $result['months'][1]['month_metric']);
         $this->assertSame(220_000.0, (float) $result['months'][1]['metric']);
+
+        // Desglose de agosto: $100K al 14% + retroactivo del 10% → 14% sobre $120K
+        $this->assertSame(14_000.0, $result['months'][1]['month_amount']);
+        $this->assertSame(4_800.0, $result['months'][1]['retroactive_amount']);
+        $this->assertSame(4.0, $result['months'][1]['percentage_delta']);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

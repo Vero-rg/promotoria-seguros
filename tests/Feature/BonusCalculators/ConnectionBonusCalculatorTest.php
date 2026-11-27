@@ -16,18 +16,20 @@ use Tests\TestCase;
 /**
  * Suite de pruebas para el Bono de Conexión Mensual (Connection Bonus).
  *
- * REGLA DE NEGOCIO — MATRIZ DE DOBLE ENTRADA:
- *   1. Cada recluta debe cumplir INDIVIDUALMENTE el PCA mínimo del tier.
- *   2. El porcentaje se determina por el recluta con MAYOR PCA individual.
- *   3. La franja de reclutas (1-2, 3-4, 5+) + PCA ($125K / $250K) define el %.
+ * REGLAS DE NEGOCIO:
+ *   1. Los agentes se acumulan durante el año (reclutados del 1 de enero al
+ *      cierre del periodo).
+ *   2. Cada agente califica con su PCA del periodo si alcanza el PCA mínimo.
+ *   3. La cantidad de agentes calificados define la franja (1-2, 3-4, 5+).
+ *   4. El pago es individual: cada agente paga su PCA × el % de su columna.
  *
  * Matriz de tiers:
  *   ┌───────────────┬────────────┬────────────┐
- *   │ Reclutas      │ PCA ≥125K  │ PCA ≥250K  │
+ *   │ Agentes       │ PCA ≥125K  │ PCA ≥250K  │
  *   ├───────────────┼────────────┼────────────┤
- *   │ 1–2 reclutas  │    9%      │    11%     │
- *   │ 3–4 reclutas  │   11%      │    13%     │
- *   │ 5+ reclutas   │   12%      │    14%     │
+ *   │ 1–2 agentes   │    9%      │    11%     │
+ *   │ 3–4 agentes   │   11%      │    13%     │
+ *   │ 5+ agentes    │   12%      │    14%     │
  *   └───────────────┴────────────┴────────────┘
  */
 class ConnectionBonusCalculatorTest extends TestCase
@@ -48,6 +50,12 @@ class ConnectionBonusCalculatorTest extends TestCase
     protected const PCT_5_PLUS_BASE = 12.0;
     protected const PCT_5_PLUS_HIGH = 14.0;
 
+    /** PCA resultante de una póliza Vida de $130,000 (premium − $1,350). */
+    protected const PCA_BASE = 128_650.0;
+
+    /** PCA resultante de una póliza Vida de $260,000 (premium − $1,350). */
+    protected const PCA_HIGH = 258_650.0;
+
     // ────────────────────────────────────────────────────────────────────
 
     protected function setUp(): void
@@ -64,129 +72,292 @@ class ConnectionBonusCalculatorTest extends TestCase
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 🟢 TESTS DE ÉXITO
+    // 🟢 PAGO INDIVIDUAL
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * 🟢 1 recluta con $130,000 PCA → franja 1-2, PCA base → 9%.
-     *
-     * Monto esperado: $130,000 × 9% = $11,700.
+     * 🟢 1 agente con $128,650 PCA → franja 1-2, columna base → 9%.
      */
-    public function test_promoter_gets_9_percent_with_one_recruit_at_base_pca(): void
+    public function test_single_recruit_at_base_pca_gets_nine_percent(): void
     {
         $scheme   = $this->createMatrixScheme();
         $promoter = Promoter::factory()->create();
         $period   = $this->defaultPeriod();
 
-        // 1 recluta con $130,000 PCA (supera $125K por $5,000)
-        $recruit = Agent::factory()
-            ->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-03-01']);
-
-        Policy::factory()->vida()->withPremium(130_000)
-            ->for($recruit)
-            ->create(['issue_date' => '2026-04-01']);
+        $recruit = $this->createRecruit($promoter, '2026-03-01');
+        $this->createPaidPolicy($recruit, 130_000, '2026-04-01');
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
-        $this->assertTrue($result['is_achieved'], 'Debió alcanzarse. Razón: ' . ($result['details']['reason'] ?? '—'));
+        $this->assertTrue($result['is_achieved'], 'Debió alcanzarse. Razón: '.($result['details']['reason'] ?? '—'));
+        $this->assertEquals(11_578.5, $result['amount']);
 
-        // 9% sobre $130,000
-        $this->assertEquals(11_700.0, $result['amount']);
-        $this->assertEquals(self::PCT_1_2_BASE, (float) $result['tier_data']['promoter_percentage']);
+        $breakdown = $result['details']['agent_breakdown'];
+        $this->assertCount(1, $breakdown);
+        $this->assertEquals(self::PCA_BASE, $breakdown[0]['pca']);
+        $this->assertEquals(self::PCT_1_2_BASE, $breakdown[0]['percentage']);
+        $this->assertEquals(11_578.5, $breakdown[0]['amount']);
     }
 
     /**
-     * 🟢 5 reclutas, al menos uno tiene $260,000 PCA → franja 5+, PCA alto → 14%.
-     *
-     * Los otros 4 reclutas tienen exactamente $125,000 cada uno.
-     * Monto esperado: ($260K + 4×$125K) × 14% = $760,000 × 14% = $106,400.
+     * 🟢 1 agente con $258,650 PCA → franja 1-2, columna alta → 11%.
      */
-    public function test_promoter_gets_14_percent_with_five_recruits_at_highest_pca(): void
+    public function test_single_recruit_at_high_pca_gets_eleven_percent(): void
     {
         $scheme   = $this->createMatrixScheme();
         $promoter = Promoter::factory()->create();
         $period   = $this->defaultPeriod();
 
-        // 4 reclutas con PCA base ($125,000)
-        for ($i = 0; $i < 4; $i++) {
-            $agent = Agent::factory()
-                ->for($promoter, 'promoter')
-                ->create(['created_at' => '2026-02-01']);
-
-            Policy::factory()->vida()->withPremium(125_000)
-                ->for($agent)
-                ->create(['issue_date' => '2026-03-01']);
-        }
-
-        // 1 recluta estrella con $260,000 PCA
-        $star = Agent::factory()
-            ->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-02-01']);
-
-        Policy::factory()->vida()->withPremium(260_000)
-            ->for($star)
-            ->create(['issue_date' => '2026-03-15']);
+        $recruit = $this->createRecruit($promoter, '2026-03-01');
+        $this->createPaidPolicy($recruit, 260_000, '2026-04-01');
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
         $this->assertTrue($result['is_achieved']);
-
-        $totalPca = 4 * 125_000 + 260_000; // $760,000
-        $expectedAmount = round($totalPca * (self::PCT_5_PLUS_HIGH / 100), 2); // $106,400
-
-        $this->assertEquals($expectedAmount, $result['amount']);
-        $this->assertEquals(self::PCT_5_PLUS_HIGH, (float) $result['tier_data']['promoter_percentage']);
-        $this->assertEquals(5, $result['details']['qualified_recruits']);
+        $this->assertEquals(28_451.5, $result['amount']); // 258,650 × 11%
+        $this->assertEquals(self::PCT_1_2_HIGH, $result['details']['agent_breakdown'][0]['percentage']);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 🔴 TESTS DE FALLO / COMPORTAMIENTO CRÍTICO
-    // ═══════════════════════════════════════════════════════════════════════
-
     /**
-     * 🔴 3 reclutas, pero uno solo tiene $100,000 PCA (debajo del umbral base).
+     * 🟢 Cada agente se paga con su propio porcentaje (ejemplo de negocio).
      *
-     * Comportamiento esperado: el recluta de $100K NO califica.
-     * Solo 2 reclutas califican → franja 1-2, PCA base → 9%.
+     * 4 agentes → franja 3-4 (base 11%, alta 13%).
+     * Agente A: PCA $128,650 → 11% = $14,151.50
+     * Agentes B, C, D: PCA $258,650 → 13% = $33,624.50 cada uno
+     * Total = $115,025.00
      */
-    public function test_fails_if_any_recruit_is_below_minimum_pca_threshold(): void
+    public function test_each_agent_is_paid_individually_with_its_own_percentage(): void
     {
         $scheme   = $this->createMatrixScheme();
         $promoter = Promoter::factory()->create();
         $period   = $this->defaultPeriod();
 
-        // Recluta 1: $130,000 PCA — SÍ califica
-        $ok1 = Agent::factory()->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-03-01']);
-        Policy::factory()->vida()->withPremium(130_000)
-            ->for($ok1)->create(['issue_date' => '2026-04-01']);
+        $baseAgent = $this->createRecruit($promoter, '2026-02-01', 'Agente Base');
+        $this->createPaidPolicy($baseAgent, 130_000, '2026-03-01');
 
-        // Recluta 2: $150,000 PCA — SÍ califica
-        $ok2 = Agent::factory()->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-03-01']);
-        Policy::factory()->vida()->withPremium(150_000)
-            ->for($ok2)->create(['issue_date' => '2026-04-01']);
-
-        // Recluta 3: $100,000 PCA — NO califica (por debajo de $125K)
-        $bad = Agent::factory()->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-03-01']);
-        Policy::factory()->vida()->withPremium(100_000)
-            ->for($bad)->create(['issue_date' => '2026-04-01']);
+        foreach (range(1, 3) as $i) {
+            $highAgent = $this->createRecruit($promoter, '2026-02-0'.($i + 1), "Agente Alto {$i}");
+            $this->createPaidPolicy($highAgent, 260_000, '2026-03-02');
+        }
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
-        // El bono SÍ se alcanza, pero solo con 2 reclutas calificados → 9%
-        $this->assertTrue($result['is_achieved'], 'Debió alcanzarse con solo 2 reclutas calificados.');
-        $this->assertEquals(2, $result['details']['qualified_recruits'], 'Solo 2 reclutas debieron calificar.');
-        $this->assertEquals(self::PCT_1_2_BASE, (float) $result['tier_data']['promoter_percentage']);
+        $this->assertTrue($result['is_achieved'], 'Debió alcanzarse. Razón: '.($result['details']['reason'] ?? '—'));
+        $this->assertEquals(115_025.0, $result['amount']);
+        $this->assertEquals(4, $result['details']['qualified_recruits']);
 
-        // Monto = ($130K + $150K) × 9% = $25,200
-        $this->assertEquals(25_200.0, $result['amount']);
+        $breakdown = collect($result['details']['agent_breakdown']);
+
+        $baseRow = $breakdown->firstWhere('agent_name', 'Agente Base');
+        $this->assertEquals(self::PCT_3_4_BASE, $baseRow['percentage']);
+        $this->assertEquals(14_151.5, $baseRow['amount']);
+
+        $highRows = $breakdown->where('percentage', self::PCT_3_4_HIGH);
+        $this->assertCount(3, $highRows);
+        foreach ($highRows as $row) {
+            $this->assertEquals(33_624.5, $row['amount']);
+        }
     }
 
     /**
-     * 🔴 Un agente NO puede recibir este bono (solo aplica a Promoters).
+     * 🟢 5 agentes con PCA base → franja 5+ → 12% cada uno.
+     */
+    public function test_five_agents_at_base_pca_get_twelve_percent_each(): void
+    {
+        $scheme   = $this->createMatrixScheme();
+        $promoter = Promoter::factory()->create();
+        $period   = $this->defaultPeriod();
+
+        foreach (range(1, 5) as $i) {
+            $agent = $this->createRecruit($promoter, '2026-02-0'.$i);
+            $this->createPaidPolicy($agent, 130_000, '2026-03-01');
+        }
+
+        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved']);
+        $this->assertEquals(77_190.0, $result['amount']); // 5 × 15,438
+        $this->assertEquals(self::PCT_5_PLUS_BASE, $result['details']['agent_breakdown'][0]['percentage']);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🟢 ACUMULACIÓN ANUAL DE AGENTES
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 🟢 Los agentes reclutados antes del periodo siguen contando: 2 de
+     *    febrero + 1 de octubre = 3 agentes → franja 3-4 (11%).
+     */
+    public function test_agents_accumulate_through_the_year(): void
+    {
+        $scheme   = $this->createMatrixScheme();
+        $promoter = Promoter::factory()->create();
+
+        $period = [
+            'start' => Carbon::parse('2026-10-01'),
+            'end'   => Carbon::parse('2026-10-31'),
+        ];
+
+        // Reclutados en el año, con venta en octubre
+        foreach (['2026-02-01', '2026-03-01', '2026-10-05'] as $createdAt) {
+            $agent = $this->createRecruit($promoter, $createdAt);
+            $this->createPaidPolicy($agent, 130_000, '2026-10-15');
+        }
+
+        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved'], 'Debió alcanzarse. Razón: '.($result['details']['reason'] ?? '—'));
+        $this->assertEquals(3, $result['details']['total_recruits']);
+        $this->assertEquals(3, $result['details']['qualified_recruits']);
+        $this->assertEquals(42_454.5, $result['amount']); // 3 × (128,650 × 11%)
+    }
+
+    /**
+     * 🔴 Un agente reclutado en un año anterior no cuenta para este año.
+     */
+    public function test_recruit_from_previous_year_does_not_count(): void
+    {
+        $scheme   = $this->createMatrixScheme();
+        $promoter = Promoter::factory()->create();
+
+        $period = [
+            'start' => Carbon::parse('2026-10-01'),
+            'end'   => Carbon::parse('2026-10-31'),
+        ];
+
+        $old = $this->createRecruit($promoter, '2025-11-01');
+        $this->createPaidPolicy($old, 130_000, '2026-10-15');
+
+        $current = $this->createRecruit($promoter, '2026-10-02');
+        $this->createPaidPolicy($current, 130_000, '2026-10-15');
+
+        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved']);
+        $this->assertEquals(1, $result['details']['total_recruits']); // solo el de 2026
+        $this->assertEquals(11_578.5, $result['amount']);             // franja 1-2 → 9%
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🟡 AGENTES QUE NO CALIFICAN
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 🟡 Un agente debajo del PCA mínimo aparece en el desglose pero no paga
+     *    ni cuenta para la franja.
+     */
+    public function test_agent_below_minimum_pca_is_listed_but_does_not_pay(): void
+    {
+        $scheme   = $this->createMatrixScheme();
+        $promoter = Promoter::factory()->create();
+        $period   = $this->defaultPeriod();
+
+        $qualified = $this->createRecruit($promoter, '2026-02-01', 'Agente Califica');
+        $this->createPaidPolicy($qualified, 130_000, '2026-03-01');
+
+        $low = $this->createRecruit($promoter, '2026-02-02', 'Agente Bajo');
+        $this->createPaidPolicy($low, 100_000, '2026-03-01');
+
+        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved']);
+        $this->assertEquals(11_578.5, $result['amount']); // solo el calificado
+
+        $breakdown = collect($result['details']['agent_breakdown']);
+        $lowRow = $breakdown->firstWhere('agent_name', 'Agente Bajo');
+
+        $this->assertFalse($lowRow['qualified']);
+        $this->assertNull($lowRow['percentage']);
+        $this->assertEquals(0.0, $lowRow['amount']);
+    }
+
+    /**
+     * 🔴 Ningún agente alcanza el PCA mínimo → bono no alcanzado.
+     */
+    public function test_no_qualified_agents_returns_not_achieved(): void
+    {
+        $scheme   = $this->createMatrixScheme();
+        $promoter = Promoter::factory()->create();
+        $period   = $this->defaultPeriod();
+
+        $agent = $this->createRecruit($promoter, '2026-02-01');
+        $this->createPaidPolicy($agent, 100_000, '2026-03-01');
+
+        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+
+        $this->assertFalse($result['is_achieved']);
+        $this->assertEquals(0.0, $result['amount']);
+        $this->assertStringContainsString('PCA mínimo', $result['details']['reason'] ?? '');
+        $this->assertCount(1, $result['details']['agent_breakdown']);
+    }
+
+    /**
+     * 🔴 Sin agentes reclutados en el año → bono no alcanzado.
+     */
+    public function test_promoter_without_recruits_returns_not_achieved(): void
+    {
+        $scheme   = $this->createMatrixScheme();
+        $promoter = Promoter::factory()->create();
+        $period   = $this->defaultPeriod();
+
+        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+
+        $this->assertFalse($result['is_achieved']);
+        $this->assertEquals(0.0, $result['amount']);
+        $this->assertStringContainsString('No se encontraron agentes', $result['details']['reason'] ?? '');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🟡 REGLAS ADICIONALES
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 🟡 El monto fijo del tramo se suma por cada agente que lo alcanza.
+     */
+    public function test_fixed_amount_is_added_per_agent(): void
+    {
+        $scheme = $this->createMatrixScheme(fixedAmounts: [self::PCT_1_2_BASE => 5_000]);
+        $promoter = Promoter::factory()->create();
+        $period   = $this->defaultPeriod();
+
+        $recruit = $this->createRecruit($promoter, '2026-03-01');
+        $this->createPaidPolicy($recruit, 130_000, '2026-04-01');
+
+        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved']);
+        $this->assertEquals(16_578.5, $result['amount']); // 11,578.50 + 5,000
+
+        $row = $result['details']['agent_breakdown'][0];
+        $this->assertEquals(5_000.0, $row['fixed_amount']);
+        $this->assertEquals(16_578.5, $row['amount']);
+    }
+
+    /**
+     * 🟡 El monto de las pólizas Primordial no suma a la PCA del agente.
+     */
+    public function test_primordial_premiums_do_not_add_to_recruit_pca(): void
+    {
+        $scheme   = $this->createMatrixScheme();
+        $promoter = Promoter::factory()->create();
+        $period   = $this->defaultPeriod();
+
+        $recruit = $this->createRecruit($promoter, '2026-03-01');
+        $this->createPaidPolicy($recruit, 130_000, '2026-04-01');
+
+        Policy::factory()->primordial()->pagada()->withPremium(500_000)
+            ->for($recruit)
+            ->create(['issue_date' => '2026-04-05']);
+
+        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
+
+        $this->assertTrue($result['is_achieved']);
+        $this->assertEquals(11_578.5, $result['amount']);
+        $this->assertEquals(self::PCA_BASE, $result['details']['agent_breakdown'][0]['pca']);
+    }
+
+    /**
+     * 🔴 Un Agent no puede recibir este bono.
      */
     public function test_agent_cannot_receive_connection_bonus(): void
     {
@@ -197,228 +368,58 @@ class ConnectionBonusCalculatorTest extends TestCase
         $result = $this->calculator->calculate($agent, $scheme, $period['start'], $period['end']);
 
         $this->assertFalse($result['is_achieved']);
-        $this->assertStringContainsString('Promotor', $result['details']['reason'] ?? '');
+        $this->assertStringContainsString('Promotores', $result['details']['reason'] ?? '');
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 🟡 TESTS DE PRECISIÓN DE LA MATRIZ
-    // ═══════════════════════════════════════════════════════════════════════
-
     /**
-     * 🟡 2 reclutas: uno con $130K y otro con $260K.
-     *
-     * - Franja: 1–2 reclutas.
-     * - PCA más alto: $260K ≥ $250K → umbral alto.
-     * - Porcentaje: 11% (NO 9%).
+     * 🔴 Solo las pólizas Pagada aportan PCA.
      */
-    public function test_percentage_is_based_on_recruit_with_highest_pca(): void
+    public function test_non_paid_policies_do_not_count(): void
     {
         $scheme   = $this->createMatrixScheme();
         $promoter = Promoter::factory()->create();
         $period   = $this->defaultPeriod();
 
-        // Recluta base: $130,000
-        $base = Agent::factory()->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-03-01']);
+        $recruit = $this->createRecruit($promoter, '2026-03-01');
+
         Policy::factory()->vida()->withPremium(130_000)
-            ->for($base)->create(['issue_date' => '2026-04-01']);
-
-        // Recluta estrella: $260,000
-        $star = Agent::factory()->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-03-01']);
-        Policy::factory()->vida()->withPremium(260_000)
-            ->for($star)->create(['issue_date' => '2026-04-01']);
-
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
-
-        $this->assertTrue($result['is_achieved']);
-
-        // Debe ser 11%, NO 9%
-        $this->assertEquals(self::PCT_1_2_HIGH, (float) $result['tier_data']['promoter_percentage']);
-        $this->assertNotEquals(self::PCT_1_2_BASE, (float) $result['tier_data']['promoter_percentage']);
-
-        // Monto = ($130K + $260K) × 11% = $390K × 11% = $42,900
-        $this->assertEquals(42_900.0, $result['amount']);
-    }
-
-    /**
-     * 🟡 Verifica que el fixed_amount de graduación se SUMA al monto porcentual.
-     *
-     * Usamos el tier de 1-2 reclutas con PCA base (9%) y le agregamos
-     * un fixed_amount de $5,000 por bono de graduación.
-     *
-     * Monto esperado: ($130,000 × 9%) + $5,000 = $11,700 + $5,000 = $16,700.
-     */
-    public function test_includes_graduation_and_excellence_fixed_bonuses(): void
-    {
-        // ── Arrange: crear esquema con fixed_amount en el tier ──────────
-        $scheme = Scheme::create([
-            'name'              => 'connection',
-            'type'              => 'bonus',
-            'target'            => 'promoter',
-            'is_active'         => true,
-            'metric_base'       => 'PCA',
-            'frequency'         => 'mensual',
-            'requires_product'  => null,
-            'min_product_count' => 0,
-        ]);
-
-        $version = SchemeVersion::create([
-            'scheme_id'    => $scheme->id,
-            'version_name' => 'v1.0 — Conexión Mensual',
-            'starts_at'    => '2026-01-01',
-            'ends_at'      => '2026-12-31',
-        ]);
-
-        // Tier 1-2 base (9%) + $5,000 fijo de graduación
-        SchemeTier::create([
-            'scheme_version_id'   => $version->id,
-            'conditions'          => ['min_recruits' => 1, 'max_recruits' => 2, 'min_pca' => self::BASE_PCA_THRESHOLD],
-            'agent_percentage'    => 0,
-            'promoter_percentage' => self::PCT_1_2_BASE,     // 9%
-            'fixed_amount'        => 5_000,                   // Bono de graduación
-        ]);
-
-        // Tier 1-2 alto (11%)
-        SchemeTier::create([
-            'scheme_version_id'   => $version->id,
-            'conditions'          => ['min_recruits' => 1, 'max_recruits' => 2, 'min_pca' => self::HIGH_PCA_THRESHOLD],
-            'agent_percentage'    => 0,
-            'promoter_percentage' => self::PCT_1_2_HIGH,
-            'fixed_amount'        => null,
-        ]);
-
-        $scheme->loadMissing(['versions.tiers']);
-
-        $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
-
-        // 1 recluta con $130,000 PCA
-        $recruit = Agent::factory()->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-03-01']);
-        Policy::factory()->vida()->withPremium(130_000)
-            ->for($recruit)->create(['issue_date' => '2026-04-01']);
-
-        // ── Act ────────────────────────────────────────────────────────
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
-
-        // ── Assert ─────────────────────────────────────────────────────
-        $this->assertTrue($result['is_achieved']);
-
-        // $130,000 × 9% = $11,700 + $5,000 fijo = $16,700
-        $this->assertEquals(16_700.0, $result['amount']);
-        $this->assertEquals(9.0, (float) $result['tier_data']['promoter_percentage']);
-        $this->assertEquals(5_000.0, (float) $result['tier_data']['fixed_amount']);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // 🟡 TESTS ADICIONALES DE COBERTURA DE MATRIZ
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /**
-     * 🟡 3 reclutas, todos en PCA base ($125K-$150K) → franja 3-4, base → 11%.
-     */
-    public function test_three_recruits_at_base_pca_get_11_percent(): void
-    {
-        $scheme   = $this->createMatrixScheme();
-        $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
-
-        for ($i = 0; $i < 3; $i++) {
-            $agent = Agent::factory()->for($promoter, 'promoter')
-                ->create(['created_at' => '2026-03-01']);
-            Policy::factory()->vida()->withPremium(140_000)
-                ->for($agent)->create(['issue_date' => '2026-04-01']);
-        }
-
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
-
-        $this->assertTrue($result['is_achieved']);
-        $this->assertEquals(self::PCT_3_4_BASE, (float) $result['tier_data']['promoter_percentage']);
-        $this->assertEquals(3, $result['details']['qualified_recruits']);
-        // $420,000 × 11% = $46,200
-        $this->assertEquals(46_200.0, $result['amount']);
-    }
-
-    /**
-     * 🟡 4 reclutas, uno con PCA alto → franja 3-4, alto → 13%.
-     */
-    public function test_four_recruits_with_one_high_pca_get_13_percent(): void
-    {
-        $scheme   = $this->createMatrixScheme();
-        $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
-
-        // 3 base
-        for ($i = 0; $i < 3; $i++) {
-            $agent = Agent::factory()->for($promoter, 'promoter')
-                ->create(['created_at' => '2026-03-01']);
-            Policy::factory()->vida()->withPremium(130_000)
-                ->for($agent)->create(['issue_date' => '2026-04-01']);
-        }
-
-        // 1 alto
-        $star = Agent::factory()->for($promoter, 'promoter')
-            ->create(['created_at' => '2026-03-01']);
-        Policy::factory()->vida()->withPremium(300_000)
-            ->for($star)->create(['issue_date' => '2026-04-01']);
-
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
-
-        $this->assertTrue($result['is_achieved']);
-        $this->assertEquals(self::PCT_3_4_HIGH, (float) $result['tier_data']['promoter_percentage']);
-        // (3×$130K + $300K) × 13% = $690K × 13% = $89,700
-        $this->assertEquals(89_700.0, $result['amount']);
-    }
-
-    /**
-     * 🟡 5 reclutas en PCA base → franja 5+, base → 12%.
-     */
-    public function test_five_recruits_at_base_pca_get_12_percent(): void
-    {
-        $scheme   = $this->createMatrixScheme();
-        $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
-
-        for ($i = 0; $i < 5; $i++) {
-            $agent = Agent::factory()->for($promoter, 'promoter')
-                ->create(['created_at' => '2026-03-01']);
-            Policy::factory()->vida()->withPremium(130_000)
-                ->for($agent)->create(['issue_date' => '2026-04-01']);
-        }
-
-        $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
-
-        $this->assertTrue($result['is_achieved']);
-        $this->assertEquals(self::PCT_5_PLUS_BASE, (float) $result['tier_data']['promoter_percentage']);
-        // 5 × $130K × 12% = $650K × 12% = $78,000
-        $this->assertEquals(78_000.0, $result['amount']);
-    }
-
-    /**
-     * 🔴 Promoter sin ningún recluta en el periodo → no aplica.
-     */
-    public function test_promoter_with_zero_recruits_fails(): void
-    {
-        $scheme   = $this->createMatrixScheme();
-        $promoter = Promoter::factory()->create();
-        $period   = $this->defaultPeriod();
+            ->for($recruit)
+            ->create(['issue_date' => '2026-04-01', 'status' => Policy::STATUS_ACTIVA]);
 
         $result = $this->calculator->calculate($promoter, $scheme, $period['start'], $period['end']);
 
         $this->assertFalse($result['is_achieved']);
-        $this->assertEquals(0, $result['progress']['current_value']);
+        $this->assertEquals(0.0, $result['details']['agent_breakdown'][0]['pca']);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 🔧 HELPERS DE CONSTRUCCIÓN DE DATOS
+    // 🔧 HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
+    private function createRecruit(Promoter $promoter, string $createdAt, ?string $name = null): Agent
+    {
+        $attributes = ['created_at' => $createdAt, 'is_active' => true];
+
+        if ($name !== null) {
+            $attributes['name'] = $name;
+        }
+
+        return Agent::factory()->for($promoter, 'promoter')->create($attributes);
+    }
+
+    private function createPaidPolicy(Agent $agent, float $premium, string $issueDate): Policy
+    {
+        return Policy::factory()->vida()->pagada()->withPremium($premium)
+            ->for($agent)
+            ->create(['issue_date' => $issueDate]);
+    }
+
     /**
-     * Crea el esquema completo «Bono de Conexión Mensual» con la matriz
-     * de 6 tiers (3 franjas × 2 umbrales PCA).
+     * Crea el esquema «Conexión Mensual» con la matriz de 6 tramos.
+     *
+     * @param  array<float, float>  $fixedAmounts  [porcentaje => monto fijo]
      */
-    protected function createMatrixScheme(): Scheme
+    protected function createMatrixScheme(array $fixedAmounts = []): Scheme
     {
         $scheme = Scheme::create([
             'name'              => 'connection',
@@ -458,7 +459,7 @@ class ConnectionBonusCalculatorTest extends TestCase
                 ],
                 'agent_percentage'    => 0,
                 'promoter_percentage' => $pct,
-                'fixed_amount'        => null,
+                'fixed_amount'        => $fixedAmounts[$pct] ?? null,
             ]);
         }
 
